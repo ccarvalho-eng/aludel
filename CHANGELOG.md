@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-17
+
+### Added
+- Embedded callback execution mode for running Aludel evaluations through a host application's real LLM workflow
+- Suite creation now supports attaching test case documents before the suite is saved
+
+### Changed
+- Run and suite screens now expose execution mode context and preserve callback metadata in exports
+- Updated `req_llm` to 1.11.0, `llm_db` to 2026.4.8, Phoenix to 1.8.7, Ecto to 3.13.6, Postgrex to 0.22.1, and ExAws to 2.7.0
+
+### Fixed
+- Ollama providers no longer send an authentication marker when no API key is configured
+- Suite creation and editing now surface test case persistence failures instead of silently dropping failed test cases
+
 ## [0.2.1] - 2026-05-02
 
 ### Added
