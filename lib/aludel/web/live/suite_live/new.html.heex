@@ -109,6 +109,32 @@
                   <% end %>
                 </div>
 
+                <%= if test_case[:upload_name] do %>
+                  <% upload = Map.fetch!(@uploads, test_case.upload_name) %>
+                  <div id={"test_case_#{test_case.id}_documents"} style="margin-bottom: 12px;">
+                    <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">
+                      Documents
+                    </h4>
+                    <label
+                      phx-drop-target={upload.ref}
+                      style="display: block; border: 2px dashed rgba(139, 92, 246, 0.3); border-radius: 6px; padding: 16px; text-align: center; cursor: pointer; background: rgba(139, 92, 246, 0.05); transition: all 0.2s ease;"
+                    >
+                      <.live_file_input upload={upload} class="hidden" />
+                      <div style="font-size: 14px; font-weight: 500; color: var(--accent); margin-bottom: 4px;">
+                        + Upload Document
+                      </div>
+                      <div style="font-size: 11px; color: var(--text-muted);">
+                        PDF, PNG, JPG, CSV, JSON, TXT, max 10MB, up to 5 files
+                      </div>
+                    </label>
+                    <%= for entry <- upload.entries do %>
+                      <div style="font-size: 12px; color: #10b981; margin-top: 4px;">
+                        {entry.client_name}
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+
                 <div>
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                     <label style="margin: 0;">Assertions</label>

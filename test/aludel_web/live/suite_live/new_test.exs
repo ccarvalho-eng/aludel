@@ -263,6 +263,90 @@ defmodule Aludel.Web.SuiteLive.NewTest do
       assert flash["info"] == "Suite created successfully"
     end
 
+    test "creates suite with uploaded test case documents", %{conn: conn} do
+      prompt = prompt_fixture_with_version(%{template: "Hello {{name}}"})
+
+      {:ok, view, _html} = live(conn, "/suites/new")
+
+      view
+      |> form("#suite-form", suite: %{name: "Document Suite", prompt_id: prompt.id})
+      |> render_change()
+
+      view
+      |> element("[phx-click='add_test_case']")
+      |> render_click()
+
+      test_case = List.first(:sys.get_state(view.pid).socket.assigns.test_cases)
+
+      view
+      |> render_click("add_assertion", %{"id" => test_case.id})
+
+      upload =
+        file_input(view, "#suite-form", test_case.upload_name, [
+          %{
+            name: "context.txt",
+            content: "Document context",
+            type: "text/plain"
+          }
+        ])
+
+      render_upload(upload, "context.txt")
+
+      assert has_element?(
+               view,
+               "#test_case_#{test_case.id}_documents",
+               "context.txt"
+             )
+
+      view
+      |> form("#suite-form",
+        suite: %{
+          name: "Document Suite",
+          prompt_id: prompt.id,
+          test_cases: %{
+            test_case.id => %{
+              variable_values: %{
+                name: "Alice"
+              },
+              assertions: %{
+                assertion_type_0: "contains",
+                assertion_value_0: "hello"
+              }
+            }
+          }
+        }
+      )
+      |> render_submit(%{
+        "suite" => %{
+          "name" => "Document Suite",
+          "prompt_id" => prompt.id,
+          "test_cases" => %{
+            test_case.id => %{
+              "variable_values" => %{
+                "name" => "Alice"
+              },
+              "assertions" => %{
+                "assertion_type_0" => "contains",
+                "assertion_value_0" => "hello"
+              }
+            }
+          }
+        }
+      })
+
+      {path, flash} = assert_redirect(view)
+      assert flash["info"] == "Suite created successfully"
+
+      [_, suite_id] = Regex.run(~r{/suites/([^/]+)$}, path)
+      suite = Evals.get_suite_with_test_cases_and_prompt!(suite_id)
+      [created_test_case] = suite.test_cases
+      [document] = created_test_case.documents
+
+      assert document.filename == "context.txt"
+      assert document.content_type == "text/plain"
+      assert document.size_bytes == byte_size("Document context")
+    end
+
     test "creates suite with a deep compare assertion successfully", %{conn: conn} do
       prompt = prompt_fixture_with_version(%{template: "Hello {{name}}"})
 

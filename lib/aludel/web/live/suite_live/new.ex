@@ -7,9 +7,15 @@ defmodule Aludel.Web.SuiteLive.New do
 
   alias Aludel.Evals
   alias Aludel.Evals.AssertionParser
+  alias Aludel.Evals.DocumentIngestion
   alias Aludel.Evals.Suite
   alias Aludel.Projects
   alias Aludel.Prompts
+
+  @document_upload_names Enum.map(0..49, &:"test_case_documents_#{&1}")
+  @document_upload_accept ~w(.pdf .png .jpg .jpeg .csv .json .txt)
+  @document_upload_max_entries 5
+  @document_upload_max_file_size 10_000_000
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -59,18 +65,31 @@ defmodule Aludel.Web.SuiteLive.New do
           %{}
       end
 
-    new_test_case = %{
-      id: generate_id(),
-      assertions: [],
-      variable_values: variable_values
-    }
+    case next_document_upload_name(socket) do
+      nil ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "You can add up to #{length(@document_upload_names)} test cases with uploads"
+         )}
 
-    test_cases = socket.assigns.test_cases ++ [new_test_case]
+      upload_name ->
+        new_test_case = %{
+          id: generate_id(),
+          upload_name: upload_name,
+          assertions: [],
+          variable_values: variable_values
+        }
 
-    {:noreply,
-     socket
-     |> assign(:test_cases, test_cases)
-     |> put_test_case_form_params(new_test_case)}
+        test_cases = socket.assigns.test_cases ++ [new_test_case]
+
+        {:noreply,
+         socket
+         |> allow_document_upload(upload_name)
+         |> assign(:test_cases, test_cases)
+         |> put_test_case_form_params(new_test_case)}
+    end
   end
 
   @impl Phoenix.LiveView
@@ -173,6 +192,8 @@ defmodule Aludel.Web.SuiteLive.New do
         }
       end)
 
+    {test_cases, socket} = assign_document_uploads(socket, test_cases)
+
     socket
     |> assign(:page_title, "Edit Suite")
     |> assign(:suite, suite)
@@ -188,11 +209,11 @@ defmodule Aludel.Web.SuiteLive.New do
   defp save_suite(socket, :new, suite_params) do
     case validate_test_cases(suite_params) do
       :ok ->
-        case create_suite_with_test_cases(suite_params) do
-          {:ok, suite} ->
+        case create_suite_with_test_cases(socket, suite_params) do
+          {:ok, suite, upload_results} ->
             {:noreply,
              socket
-             |> put_flash(:info, "Suite created successfully")
+             |> put_create_suite_flash(upload_results)
              |> push_navigate(to: aludel_path("suites/#{suite.id}"))}
 
           {:error, changeset} ->
@@ -263,24 +284,25 @@ defmodule Aludel.Web.SuiteLive.New do
     AssertionParser.parse(:visual, test_case_params)
   end
 
-  defp create_suite_with_test_cases(params) do
-    test_cases_params = extract_test_cases(params)
+  defp create_suite_with_test_cases(socket, params) do
+    test_cases_params = extract_test_cases(params, socket.assigns.test_cases, socket)
 
     case Evals.create_suite(Map.drop(params, ["test_cases"])) do
       {:ok, suite} ->
-        create_test_cases_for_suite(suite, test_cases_params)
-        {:ok, suite}
+        upload_results = create_test_cases_for_suite(socket, suite, test_cases_params)
+        {:ok, suite, upload_results}
 
       {:error, changeset} ->
         {:error, changeset}
     end
   end
 
-  defp extract_test_cases(params) do
+  defp extract_test_cases(params, current_test_cases, socket \\ nil) do
     test_cases = params["test_cases"] || %{}
+    current_test_cases_by_id = Map.new(current_test_cases, &{&1.id, &1})
 
     test_cases
-    |> Enum.map(fn {_id, test_case_params} ->
+    |> Enum.map(fn {id, test_case_params} ->
       variable_values = Map.get(test_case_params, "variable_values", %{})
 
       assertions =
@@ -289,28 +311,43 @@ defmodule Aludel.Web.SuiteLive.New do
           {:error, _message} -> []
         end
 
+      upload_name =
+        current_test_cases_by_id
+        |> Map.get(id, %{})
+        |> Map.get(:upload_name)
+
       %{
+        upload_name: upload_name,
+        has_uploads: upload_name_has_entries?(socket, upload_name),
         variable_values: variable_values,
         assertions: assertions
       }
     end)
-    |> Enum.reject(fn tc -> tc.variable_values == %{} end)
+    |> Enum.reject(&empty_test_case?/1)
   end
 
-  defp create_test_cases_for_suite(suite, test_cases_params) do
-    Enum.each(test_cases_params, fn tc_params ->
-      Evals.create_test_case(Map.put(tc_params, :suite_id, suite.id))
+  defp create_test_cases_for_suite(socket, suite, test_cases_params) do
+    Enum.flat_map(test_cases_params, fn tc_params ->
+      attrs =
+        tc_params
+        |> Map.take([:variable_values, :assertions])
+        |> Map.put(:suite_id, suite.id)
+
+      case Evals.create_test_case(attrs) do
+        {:ok, test_case} -> handle_test_case_uploads(socket, tc_params, test_case)
+        {:error, _changeset} -> []
+      end
     end)
   end
 
   defp update_suite_with_test_cases(suite, params) do
-    test_cases_params = extract_test_cases(params)
+    test_cases_params = extract_test_cases(params, [])
 
     case Evals.update_suite(suite, Map.drop(params, ["test_cases"])) do
       {:ok, suite} ->
         # Delete existing test cases and create new ones
         Enum.each(suite.test_cases, fn tc -> Evals.delete_test_case(tc) end)
-        create_test_cases_for_suite(suite, test_cases_params)
+        create_test_cases_for_suite(%{assigns: %{uploads: %{}}}, suite, test_cases_params)
         {:ok, suite}
 
       {:error, changeset} ->
@@ -362,7 +399,7 @@ defmodule Aludel.Web.SuiteLive.New do
 
   defp merge_test_cases_from_params(
          %{"test_cases" => test_cases_params},
-         _current_test_cases,
+         current_test_cases,
          selected_prompt
        )
        when is_map(test_cases_params) and map_size(test_cases_params) > 0 do
@@ -378,6 +415,7 @@ defmodule Aludel.Web.SuiteLive.New do
 
       %{
         id: id,
+        upload_name: current_test_case_upload_name(current_test_cases, id),
         variable_values: variable_values,
         assertions: merge_test_case_assertions(test_case_params)
       }
@@ -561,6 +599,80 @@ defmodule Aludel.Web.SuiteLive.New do
 
   defp display_value(value) when is_map(value) or is_list(value), do: Jason.encode!(value)
   defp display_value(value), do: to_string(value)
+
+  defp assign_document_uploads(socket, test_cases) do
+    Enum.map_reduce(test_cases, socket, fn test_case, socket ->
+      case next_document_upload_name(socket) do
+        nil ->
+          {test_case, socket}
+
+        upload_name ->
+          {%{test_case | upload_name: upload_name}, allow_document_upload(socket, upload_name)}
+      end
+    end)
+  end
+
+  defp next_document_upload_name(socket) do
+    used_upload_names =
+      socket.assigns
+      |> Map.get(:uploads, %{})
+      |> Map.keys()
+      |> MapSet.new()
+
+    Enum.find(@document_upload_names, &(not MapSet.member?(used_upload_names, &1)))
+  end
+
+  defp allow_document_upload(socket, upload_name) do
+    allow_upload(socket, upload_name,
+      accept: @document_upload_accept,
+      max_entries: @document_upload_max_entries,
+      max_file_size: @document_upload_max_file_size
+    )
+  end
+
+  defp current_test_case_upload_name(test_cases, id) do
+    test_cases
+    |> Enum.find(%{}, &(&1.id == id))
+    |> Map.get(:upload_name)
+  end
+
+  defp upload_name_has_entries?(_socket, nil), do: false
+  defp upload_name_has_entries?(nil, _upload_name), do: false
+
+  defp upload_name_has_entries?(socket, upload_name) do
+    socket.assigns
+    |> Map.get(:uploads, %{})
+    |> Map.get(upload_name)
+    |> case do
+      nil -> false
+      upload -> upload.entries != []
+    end
+  end
+
+  defp empty_test_case?(test_case) do
+    test_case.variable_values == %{} and test_case.assertions == [] and not test_case.has_uploads
+  end
+
+  defp handle_test_case_uploads(_socket, %{upload_name: nil}, _test_case), do: []
+
+  defp handle_test_case_uploads(socket, %{upload_name: upload_name}, test_case) do
+    consume_uploaded_entries(socket, upload_name, fn %{path: path}, entry ->
+      {:ok, DocumentIngestion.ingest(path, entry, test_case.id)}
+    end)
+  end
+
+  defp successful_upload?({:success, _filename}), do: true
+  defp successful_upload?(_result), do: false
+
+  defp put_create_suite_flash(socket, upload_results) do
+    {_successful_uploads, failed_uploads} = Enum.split_with(upload_results, &successful_upload?/1)
+
+    if failed_uploads == [] do
+      put_flash(socket, :info, "Suite created successfully")
+    else
+      put_flash(socket, :warning, "Suite created, but some document uploads failed")
+    end
+  end
 
   defp prompt_variables(%{versions: [%{template: template} | _]}), do: extract_variables(template)
   defp prompt_variables(_selected_prompt), do: []
