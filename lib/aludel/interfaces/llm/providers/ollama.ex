@@ -5,8 +5,8 @@ defmodule Aludel.Interfaces.LLM.Providers.Ollama do
   Handles API communication with local Ollama models through the
   configured HTTP adapter.
 
-  Ollama doesn't require authentication, so we pass a random string
-  as api_key to ReqLLM.
+  Ollama doesn't require authentication, so we mark the OpenAI-compatible
+  backend explicitly for ReqLLM instead of sending placeholder credentials.
   """
 
   alias Aludel.Interfaces.LLM.{Config, ErrorParser}
@@ -15,10 +15,13 @@ defmodule Aludel.Interfaces.LLM.Providers.Ollama do
 
   @impl true
   def generate(model, prompt, config, opts) do
+    opts = Keyword.delete(opts, :api_key)
+    {provider_options, opts} = Keyword.pop(opts, :provider_options, [])
+
     req_opts =
       [
-        api_key: "ollama-no-auth-required",
         base_url: "http://localhost:11434/v1",
+        provider_options: ollama_provider_options(provider_options),
         temperature: config["temperature"] || 0.8
       ]
       |> Keyword.merge(opts)
@@ -32,5 +35,15 @@ defmodule Aludel.Interfaces.LLM.Providers.Ollama do
       {:error, reason} ->
         ErrorParser.parse_error(reason)
     end
+  end
+
+  defp ollama_provider_options(provider_options) when is_list(provider_options) do
+    Keyword.put(provider_options, :openai_compatible_backend, :ollama)
+  end
+
+  defp ollama_provider_options(nil), do: [openai_compatible_backend: :ollama]
+
+  defp ollama_provider_options(provider_options) when is_map(provider_options) do
+    Map.put(provider_options, :openai_compatible_backend, :ollama)
   end
 end
