@@ -111,7 +111,12 @@
 
                 <%= if test_case[:upload_name] do %>
                   <% upload = Map.fetch!(@uploads, test_case.upload_name) %>
-                  <div id={"test_case_#{test_case.id}_documents"} style="margin-bottom: 12px;">
+                  <div
+                    id={"test_case_#{test_case.id}_documents"}
+                    data-test-case-id={test_case.id}
+                    data-upload-name={test_case.upload_name}
+                    style="margin-bottom: 12px;"
+                  >
                     <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">
                       Documents
                     </h4>

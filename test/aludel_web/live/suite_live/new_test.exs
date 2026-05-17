@@ -763,10 +763,16 @@ defmodule Aludel.Web.SuiteLive.NewTest do
   end
 
   defp first_document_upload(view) do
-    html = render(view)
+    document = render(view) |> LazyHTML.from_fragment()
 
-    [_, test_case_id] = Regex.run(~r/id="test_case_([^"]+)_documents"/, html)
-    [_, upload_name] = Regex.run(~r/type="file" name="(test_case_documents_\d+)"/, html)
+    [document_attributes | _] =
+      document
+      |> LazyHTML.query("[data-test-case-id][data-upload-name]")
+      |> LazyHTML.attributes()
+
+    attributes = Map.new(document_attributes)
+    test_case_id = Map.fetch!(attributes, "data-test-case-id")
+    upload_name = Map.fetch!(attributes, "data-upload-name")
 
     {test_case_id, String.to_existing_atom(upload_name)}
   end

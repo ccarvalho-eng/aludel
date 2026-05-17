@@ -218,7 +218,7 @@ defmodule Aludel.Web.SuiteLive.New do
              |> put_create_suite_flash(upload_results)
              |> push_navigate(to: aludel_path("suites/#{suite.id}"))}
 
-          {:error, changeset} ->
+          {:error, %Ecto.Changeset{} = changeset} ->
             {:noreply,
              socket
              |> assign(:form, to_form(changeset))
@@ -230,6 +230,9 @@ defmodule Aludel.Web.SuiteLive.New do
                  socket.assigns.selected_prompt
                )
              )}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, suite_save_error_message(reason))}
         end
 
       {:error, message} ->
@@ -247,7 +250,7 @@ defmodule Aludel.Web.SuiteLive.New do
              |> put_update_suite_flash(upload_results)
              |> push_navigate(to: aludel_path("suites/#{suite.id}"))}
 
-          {:error, changeset} ->
+          {:error, %Ecto.Changeset{} = changeset} ->
             {:noreply,
              socket
              |> assign(:form, to_form(changeset))
@@ -259,6 +262,9 @@ defmodule Aludel.Web.SuiteLive.New do
                  socket.assigns.selected_prompt
                )
              )}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, suite_save_error_message(reason))}
         end
 
       {:error, message} ->
@@ -288,15 +294,17 @@ defmodule Aludel.Web.SuiteLive.New do
 
   defp create_suite_with_test_cases(socket, params) do
     test_cases_params = extract_test_cases(params, socket.assigns.test_cases, socket)
+    repo = Aludel.Repo.get()
 
-    case Evals.create_suite(Map.drop(params, ["test_cases"])) do
-      {:ok, suite} ->
-        upload_results = create_test_cases_for_suite(socket, suite, test_cases_params)
-        {:ok, suite, upload_results}
-
-      {:error, changeset} ->
-        {:error, changeset}
-    end
+    repo.transaction(fn ->
+      with {:ok, suite} <- Evals.create_suite(Map.drop(params, ["test_cases"])),
+           {:ok, upload_results} <- create_test_cases_for_suite(socket, suite, test_cases_params) do
+        {suite, upload_results}
+      else
+        {:error, reason} -> repo.rollback(reason)
+      end
+    end)
+    |> suite_transaction_result()
   end
 
   defp extract_test_cases(params, current_test_cases, socket) do
@@ -329,32 +337,63 @@ defmodule Aludel.Web.SuiteLive.New do
   end
 
   defp create_test_cases_for_suite(socket, suite, test_cases_params) do
-    Enum.flat_map(test_cases_params, fn tc_params ->
+    test_cases_params
+    |> Enum.reduce_while({:ok, []}, fn tc_params, {:ok, created_test_cases} ->
       attrs =
         tc_params
         |> Map.take([:variable_values, :assertions])
         |> Map.put(:suite_id, suite.id)
 
       case Evals.create_test_case(attrs) do
-        {:ok, test_case} -> handle_test_case_uploads(socket, tc_params, test_case)
-        {:error, _changeset} -> []
+        {:ok, test_case} ->
+          {:cont, {:ok, [{tc_params, test_case} | created_test_cases]}}
+
+        {:error, changeset} ->
+          {:halt, {:error, {:test_case, changeset}}}
       end
     end)
+    |> case do
+      {:ok, created_test_cases} ->
+        upload_results =
+          created_test_cases
+          |> Enum.reverse()
+          |> Enum.flat_map(fn {tc_params, test_case} ->
+            handle_test_case_uploads(socket, tc_params, test_case)
+          end)
+
+        {:ok, upload_results}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp update_suite_with_test_cases(socket, suite, params) do
     test_cases_params = extract_test_cases(params, socket.assigns.test_cases, socket)
+    repo = Aludel.Repo.get()
 
-    case Evals.update_suite(suite, Map.drop(params, ["test_cases"])) do
-      {:ok, suite} ->
-        # Delete existing test cases and create new ones
-        Enum.each(suite.test_cases, fn tc -> Evals.delete_test_case(tc) end)
-        upload_results = create_test_cases_for_suite(socket, suite, test_cases_params)
-        {:ok, suite, upload_results}
+    repo.transaction(fn ->
+      with {:ok, suite} <- Evals.update_suite(suite, Map.drop(params, ["test_cases"])),
+           :ok <- delete_test_cases(suite.test_cases),
+           {:ok, upload_results} <- create_test_cases_for_suite(socket, suite, test_cases_params) do
+        {suite, upload_results}
+      else
+        {:error, reason} -> repo.rollback(reason)
+      end
+    end)
+    |> suite_transaction_result()
+  end
 
-      {:error, changeset} ->
-        {:error, changeset}
-    end
+  defp suite_transaction_result({:ok, {suite, upload_results}}), do: {:ok, suite, upload_results}
+  defp suite_transaction_result({:error, reason}), do: {:error, reason}
+
+  defp delete_test_cases(test_cases) do
+    Enum.reduce_while(test_cases, :ok, fn test_case, :ok ->
+      case Evals.delete_test_case(test_case) do
+        {:ok, _test_case} -> {:cont, :ok}
+        {:error, changeset} -> {:halt, {:error, {:test_case, changeset}}}
+      end
+    end)
   end
 
   defp merge_test_case_assertions(test_case_params) do
@@ -737,6 +776,24 @@ defmodule Aludel.Web.SuiteLive.New do
   defp failed_uploads_message(failed_uploads) do
     Enum.map_join(failed_uploads, ", ", fn {:failed, name, reason} ->
       "#{name} (#{reason})"
+    end)
+  end
+
+  defp suite_save_error_message({:test_case, %Ecto.Changeset{} = changeset}) do
+    "Could not save test case: #{format_changeset_errors(changeset)}"
+  end
+
+  defp suite_save_error_message(reason), do: "Could not save suite: #{inspect(reason)}"
+
+  defp format_changeset_errors(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {message, opts} ->
+      Regex.replace(~r"%{(\w+)}", message, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.map_join(", ", fn {field, messages} ->
+      "#{field} #{Enum.join(messages, ", ")}"
     end)
   end
 
