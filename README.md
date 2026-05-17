@@ -237,7 +237,7 @@ Callback mode does not require Aludel to use those API keys directly, but provid
 
 ## Document Storage
 
-Uploaded test case documents go through `Aludel.Storage`.
+Uploaded test case documents go through `Aludel.Storage`. Documents can be attached while creating new suite test cases or while editing existing test cases.
 
 - Development uses the local filesystem adapter from `config/dev.exs`.
 - Production uses `config/runtime.exs` and requires `ALUDEL_STORAGE_BACKEND`.
