@@ -276,13 +276,13 @@ defmodule Aludel.Web.SuiteLive.NewTest do
       |> element("[phx-click='add_test_case']")
       |> render_click()
 
-      test_case = List.first(:sys.get_state(view.pid).socket.assigns.test_cases)
+      {test_case_id, upload_name} = first_document_upload(view)
 
       view
-      |> render_click("add_assertion", %{"id" => test_case.id})
+      |> render_click("add_assertion", %{"id" => test_case_id})
 
       upload =
-        file_input(view, "#suite-form", test_case.upload_name, [
+        file_input(view, "#suite-form", upload_name, [
           %{
             name: "context.txt",
             content: "Document context",
@@ -294,7 +294,7 @@ defmodule Aludel.Web.SuiteLive.NewTest do
 
       assert has_element?(
                view,
-               "#test_case_#{test_case.id}_documents",
+               "#test_case_#{test_case_id}_documents",
                "context.txt"
              )
 
@@ -304,7 +304,7 @@ defmodule Aludel.Web.SuiteLive.NewTest do
           name: "Document Suite",
           prompt_id: prompt.id,
           test_cases: %{
-            test_case.id => %{
+            test_case_id => %{
               variable_values: %{
                 name: "Alice"
               },
@@ -321,7 +321,7 @@ defmodule Aludel.Web.SuiteLive.NewTest do
           "name" => "Document Suite",
           "prompt_id" => prompt.id,
           "test_cases" => %{
-            test_case.id => %{
+            test_case_id => %{
               "variable_values" => %{
                 "name" => "Alice"
               },
@@ -335,7 +335,7 @@ defmodule Aludel.Web.SuiteLive.NewTest do
       })
 
       {path, flash} = assert_redirect(view)
-      assert flash["info"] == "Suite created successfully"
+      assert flash["info"] == "Suite created with 1 document(s)"
 
       [_, suite_id] = Regex.run(~r{/suites/([^/]+)$}, path)
       suite = Evals.get_suite_with_test_cases_and_prompt!(suite_id)
@@ -345,6 +345,79 @@ defmodule Aludel.Web.SuiteLive.NewTest do
       assert document.filename == "context.txt"
       assert document.content_type == "text/plain"
       assert document.size_bytes == byte_size("Document context")
+    end
+
+    test "reports uploaded document validation failures", %{conn: conn} do
+      prompt = prompt_fixture_with_version(%{template: "Hello {{name}}"})
+
+      {:ok, view, _html} = live(conn, "/suites/new")
+
+      view
+      |> form("#suite-form", suite: %{name: "Invalid Document Suite", prompt_id: prompt.id})
+      |> render_change()
+
+      view
+      |> element("[phx-click='add_test_case']")
+      |> render_click()
+
+      {test_case_id, upload_name} = first_document_upload(view)
+
+      view
+      |> render_click("add_assertion", %{"id" => test_case_id})
+
+      upload =
+        file_input(view, "#suite-form", upload_name, [
+          %{
+            name: "invalid.json",
+            content: "not json",
+            type: "application/json"
+          }
+        ])
+
+      render_upload(upload, "invalid.json")
+
+      view
+      |> form("#suite-form",
+        suite: %{
+          name: "Invalid Document Suite",
+          prompt_id: prompt.id,
+          test_cases: %{
+            test_case_id => %{
+              variable_values: %{name: "Alice"},
+              assertions: %{
+                assertion_type_0: "contains",
+                assertion_value_0: "hello"
+              }
+            }
+          }
+        }
+      )
+      |> render_submit()
+
+      {_path, flash} = assert_redirect(view)
+      assert flash["error"] =~ "invalid.json (File content does not match type application/json)"
+    end
+
+    test "reuses document upload slots after removing test cases", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/suites/new")
+
+      view
+      |> element("[phx-click='add_test_case']")
+      |> render_click()
+
+      {first_test_case_id, first_upload_name} = first_document_upload(view)
+
+      view
+      |> element("[phx-click='remove_test_case'][phx-value-id='#{first_test_case_id}']")
+      |> render_click()
+
+      view
+      |> element("[phx-click='add_test_case']")
+      |> render_click()
+
+      {_second_test_case_id, second_upload_name} = first_document_upload(view)
+
+      assert second_upload_name == first_upload_name
     end
 
     test "creates suite with a deep compare assertion successfully", %{conn: conn} do
@@ -687,5 +760,14 @@ defmodule Aludel.Web.SuiteLive.NewTest do
       assert has_element?(view, "#suite_name[value='Suite Draft']")
       assert has_element?(view, "#suite_prompt_id-select [data-select-value]", prompt.name)
     end
+  end
+
+  defp first_document_upload(view) do
+    html = render(view)
+
+    [_, test_case_id] = Regex.run(~r/id="test_case_([^"]+)_documents"/, html)
+    [_, upload_name] = Regex.run(~r/type="file" name="(test_case_documents_\d+)"/, html)
+
+    {test_case_id, String.to_existing_atom(upload_name)}
   end
 end
