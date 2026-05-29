@@ -1398,6 +1398,17 @@
       box-shadow: 0 2px 3px -1px color-mix(in oklab, currentColor calc(var(--depth) * 100%), #0000);
     }
   }
+  .hero-arrow-down-tray {
+    --hero-arrow-down-tray: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke-width%3D%221.5%22%20stroke%3D%22currentColor%22%20aria-hidden%3D%22true%22%20data-slot%3D%22icon%22%3E%20%20%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M3%2016.5v2.25A2.25%202.25%200%200%200%205.25%2021h13.5A2.25%202.25%200%200%200%2021%2018.75V16.5M16.5%2012%2012%2016.5m0%200L7.5%2012m4.5%204.5V3%22%2F%3E%3C%2Fsvg%3E');
+    -webkit-mask: var(--hero-arrow-down-tray);
+    mask: var(--hero-arrow-down-tray);
+    mask-repeat: no-repeat;
+    background-color: currentColor;
+    vertical-align: middle;
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+  }
   .hero-arrow-path {
     --hero-arrow-path: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke-width%3D%221.5%22%20stroke%3D%22currentColor%22%20aria-hidden%3D%22true%22%20data-slot%3D%22icon%22%3E%20%20%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M16.023%209.348h4.992v-.001M2.985%2019.644v-4.992m0%200h4.992m-4.993%200%203.181%203.183a8.25%208.25%200%200%200%2013.803-3.7M4.031%209.865a8.25%208.25%200%200%201%2013.803-3.7l3.181%203.182m0-4.991v4.99%22%2F%3E%3C%2Fsvg%3E');
     -webkit-mask: var(--hero-arrow-path);
@@ -1743,6 +1754,17 @@
     --hero-sun: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke-width%3D%221.5%22%20stroke%3D%22currentColor%22%20aria-hidden%3D%22true%22%20data-slot%3D%22icon%22%3E%20%20%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M12%203v2.25m6.364.386-1.591%201.591M21%2012h-2.25m-.386%206.364-1.591-1.591M12%2018.75V21m-4.773-4.227-1.591%201.591M5.25%2012H3m4.227-4.773L5.636%205.636M15.75%2012a3.75%203.75%200%201%201-7.5%200%203.75%203.75%200%200%201%207.5%200Z%22%2F%3E%3C%2Fsvg%3E');
     -webkit-mask: var(--hero-sun);
     mask: var(--hero-sun);
+    mask-repeat: no-repeat;
+    background-color: currentColor;
+    vertical-align: middle;
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+  .hero-table-cells {
+    --hero-table-cells: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke-width%3D%221.5%22%20stroke%3D%22currentColor%22%20aria-hidden%3D%22true%22%20data-slot%3D%22icon%22%3E%20%20%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M3.375%2019.5h17.25m-17.25%200a1.125%201.125%200%200%201-1.125-1.125M3.375%2019.5h7.5c.621%200%201.125-.504%201.125-1.125m-9.75%200V5.625m0%2012.75v-1.5c0-.621.504-1.125%201.125-1.125m18.375%202.625V5.625m0%2012.75c0%20.621-.504%201.125-1.125%201.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0%203.75h-7.5A1.125%201.125%200%200%201%2012%2018.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621%200-1.125.504-1.125%201.125m19.5%200v1.5c0%20.621-.504%201.125-1.125%201.125M2.25%205.625v1.5c0%20.621.504%201.125%201.125%201.125m0%200h17.25m-17.25%200h7.5c.621%200%201.125.504%201.125%201.125M3.375%208.25c-.621%200-1.125.504-1.125%201.125v1.5c0%20.621.504%201.125%201.125%201.125m17.25-3.75h-7.5c-.621%200-1.125.504-1.125%201.125m8.625-1.125c.621%200%201.125.504%201.125%201.125v1.5c0%20.621-.504%201.125-1.125%201.125m-17.25%200h7.5m-7.5%200c-.621%200-1.125.504-1.125%201.125v1.5c0%20.621.504%201.125%201.125%201.125M12%2010.875v-1.5m0%201.5c0%20.621-.504%201.125-1.125%201.125M12%2010.875c0%20.621.504%201.125%201.125%201.125m-2.25%200c.621%200%201.125.504%201.125%201.125M13.125%2012h7.5m-7.5%200c-.621%200-1.125.504-1.125%201.125M20.625%2012c.621%200%201.125.504%201.125%201.125v1.5c0%20.621-.504%201.125-1.125%201.125m-17.25%200h7.5M12%2014.625v-1.5m0%201.5c0%20.621-.504%201.125-1.125%201.125M12%2014.625c0%20.621.504%201.125%201.125%201.125m-2.25%200c.621%200%201.125.504%201.125%201.125m0%201.5v-1.5m0%200c0-.621.504-1.125%201.125-1.125m0%200h7.5%22%2F%3E%3C%2Fsvg%3E');
+    -webkit-mask: var(--hero-table-cells);
+    mask: var(--hero-table-cells);
     mask-repeat: no-repeat;
     background-color: currentColor;
     vertical-align: middle;
