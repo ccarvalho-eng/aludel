@@ -180,4 +180,117 @@ defmodule Aludel.Web.ExportControllerTest do
              ]
     end
   end
+
+  describe "GET /prompts/:id/evolution/export/:format" do
+    test "downloads evolution metrics as JSON", %{conn: conn} do
+      prompt = prompt_fixture_with_version(%{name: "Evolution Export Prompt"})
+      prompt = Aludel.Prompts.get_prompt_with_versions!(prompt.id)
+      version = hd(prompt.versions)
+      suite = suite_fixture(%{name: "Evolution Suite", prompt_id: prompt.id})
+      provider = provider_fixture(%{name: "Evolution Provider"})
+
+      _suite_run =
+        suite_run_fixture(%{
+          suite_id: suite.id,
+          prompt_version_id: version.id,
+          provider_id: provider.id,
+          passed: 5,
+          failed: 1,
+          avg_cost_usd: Decimal.new("0.0015"),
+          avg_latency_ms: 300,
+          avg_score: Decimal.new("80.5")
+        })
+
+      conn = get(conn, "/prompts/#{prompt.id}/evolution/export/json")
+
+      assert [content_type] = get_resp_header(conn, "content-type")
+      assert content_type =~ "application/json"
+      assert get_resp_header(conn, "cache-control") == ["no-store, max-age=0"]
+      assert get_resp_header(conn, "pragma") == ["no-cache"]
+      assert get_resp_header(conn, "expires") == ["0"]
+
+      assert [disposition] = get_resp_header(conn, "content-disposition")
+      assert disposition =~ ~r/attachment; filename="prompt-evolution-.*\.json"/
+
+      payload = Jason.decode!(conn.resp_body)
+
+      assert payload["type"] == "prompt_evolution"
+      assert payload["prompt"]["id"] == prompt.id
+      assert payload["prompt"]["name"] == "Evolution Export Prompt"
+      assert is_list(payload["metrics"])
+
+      [metric] = payload["metrics"]
+      assert metric["version_number"] == version.version
+      assert metric["total_runs"] == 1
+      assert metric["avg_pass_rate"] == 83.33
+      assert metric["avg_score"] == 80.5
+      assert metric["avg_cost_usd"] == 0.0015
+      assert metric["avg_latency_ms"] == 300
+
+      [provider_breakdown] = metric["provider_breakdown"]
+      assert provider_breakdown["provider_name"] == "Evolution Provider"
+      assert provider_breakdown["runs"] == 1
+    end
+
+    test "downloads evolution metrics as CSV", %{conn: conn} do
+      prompt = prompt_fixture_with_version(%{name: "CSV Export Prompt"})
+      prompt = Aludel.Prompts.get_prompt_with_versions!(prompt.id)
+      version = hd(prompt.versions)
+      suite = suite_fixture(%{name: "CSV Suite", prompt_id: prompt.id})
+      provider = provider_fixture(%{name: "CSV Provider"})
+
+      _suite_run =
+        suite_run_fixture(%{
+          suite_id: suite.id,
+          prompt_version_id: version.id,
+          provider_id: provider.id,
+          passed: 10,
+          failed: 2,
+          avg_cost_usd: Decimal.new("0.0020"),
+          avg_latency_ms: 400,
+          avg_score: Decimal.new("90.0")
+        })
+
+      conn = get(conn, "/prompts/#{prompt.id}/evolution/export/csv")
+
+      assert [content_type] = get_resp_header(conn, "content-type")
+      assert content_type =~ "text/csv"
+      assert get_resp_header(conn, "cache-control") == ["no-store, max-age=0"]
+      assert get_resp_header(conn, "pragma") == ["no-cache"]
+      assert get_resp_header(conn, "expires") == ["0"]
+
+      assert [disposition] = get_resp_header(conn, "content-disposition")
+      assert disposition =~ ~r/attachment; filename="prompt-evolution-.*\.csv"/
+
+      csv_content = conn.resp_body
+      [header | rows] = String.split(csv_content, "\n", trim: true)
+
+      assert header ==
+               "version,created_at,total_runs,avg_pass_rate,avg_score,avg_cost_usd,avg_latency_ms,provider_name,provider_runs,provider_pass_rate,provider_score,provider_cost_usd,provider_latency_ms"
+
+      assert length(rows) == 1
+      row = hd(rows)
+      assert row =~ "#{version.version}"
+      assert row =~ "83.33"
+      assert row =~ "90.0"
+      assert row =~ "0.0020"
+      assert row =~ "400"
+      assert row =~ "CSV Provider"
+    end
+
+    test "returns 404 when prompt not found", %{conn: conn} do
+      assert_error_sent 404, fn ->
+        get(conn, "/prompts/00000000-0000-0000-0000-000000000000/evolution/export/json")
+      end
+    end
+
+    test "returns error for unsupported format", %{conn: conn} do
+      prompt = prompt_fixture_with_version(%{name: "Format Test Prompt"})
+
+      conn = get(conn, "/prompts/#{prompt.id}/evolution/export/xml")
+
+      assert conn.status == 400
+      assert conn.resp_body =~ "Unsupported format"
+    end
+  end
 end

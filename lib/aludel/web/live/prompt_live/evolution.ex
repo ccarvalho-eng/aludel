@@ -11,7 +11,12 @@ defmodule Aludel.Web.PromptLive.Evolution do
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, view_mode: :overall, show_breakdown_sidebar: false)}
+    {:ok,
+     assign(socket,
+       view_mode: :overall,
+       show_breakdown_sidebar: false,
+       show_export_dropdown: false
+     )}
   end
 
   @impl Phoenix.LiveView
@@ -59,5 +64,13 @@ defmodule Aludel.Web.PromptLive.Evolution do
 
   def handle_event("toggle_breakdown_sidebar", _params, socket) do
     {:noreply, assign(socket, :show_breakdown_sidebar, !socket.assigns.show_breakdown_sidebar)}
+  end
+
+  def handle_event("toggle_export_dropdown", _params, socket) do
+    {:noreply, assign(socket, :show_export_dropdown, !socket.assigns.show_export_dropdown)}
+  end
+
+  def handle_event("close_export_dropdown", _params, socket) do
+    {:noreply, assign(socket, :show_export_dropdown, false)}
   end
 end
