@@ -28,6 +28,13 @@ defmodule Aludel.Web.ExportController do
     send_json_download(conn, payload, "suite-run-#{id}.json")
   end
 
+  @doc """
+  Exports prompt evolution metrics in JSON or CSV format.
+
+  Returns a timestamped download with evolution metrics including version history,
+  performance data, and provider-specific breakdowns.
+  """
+  @spec evolution(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def evolution(conn, %{"id" => id, "format" => format}) do
     prompt = Prompts.get_prompt!(id)
     metrics = Prompts.get_evolution_metrics(id)
@@ -267,6 +274,7 @@ defmodule Aludel.Web.ExportController do
   end
 
   defp format_number(nil), do: ""
+  defp format_number(num) when is_float(num), do: :erlang.float_to_binary(num, decimals: 4)
   defp format_number(num), do: num
 
   defp format_datetime(nil), do: ""
