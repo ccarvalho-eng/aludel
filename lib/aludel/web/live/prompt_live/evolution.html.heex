@@ -11,9 +11,51 @@
             {@prompt.description}
           </p>
         </div>
-        <.link navigate={aludel_path("prompts/#{@prompt.id}/edit")} class="button-primary">
-          <.icon name="hero-pencil" class="size-4" /> Edit Prompt
-        </.link>
+        <div style="display: flex; gap: 12px;">
+          <%= if not Enum.empty?(@metrics) do %>
+            <div style="position: relative;">
+              <button
+                type="button"
+                phx-click="toggle_export_dropdown"
+                class="button-secondary"
+                style="display: flex; align-items: center; gap: 6px;"
+              >
+                <.icon name="hero-arrow-down-tray" class="size-4" /> Export
+                <.icon name="hero-chevron-down" class="size-3" />
+              </button>
+              <%= if @show_export_dropdown do %>
+                <div
+                  style="position: absolute; top: 100%; right: 0; margin-top: 8px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); min-width: 160px; z-index: 50;"
+                  phx-click-away="close_export_dropdown"
+                >
+                  <a
+                    href={aludel_path("prompts/#{@prompt.id}/evolution/export/json")}
+                    download
+                    style="display: flex; align-items: center; gap: 8px; padding: 12px 16px; text-decoration: none; color: var(--text-primary); transition: background-color 0.15s;"
+                    onmouseover="this.style.backgroundColor='var(--bg-secondary)'"
+                    onmouseout="this.style.backgroundColor='transparent'"
+                  >
+                    <.icon name="hero-document-text" class="size-4" />
+                    <span style="font-size: 14px; font-weight: 500;">Export as JSON</span>
+                  </a>
+                  <a
+                    href={aludel_path("prompts/#{@prompt.id}/evolution/export/csv")}
+                    download
+                    style="display: flex; align-items: center; gap: 8px; padding: 12px 16px; text-decoration: none; color: var(--text-primary); border-top: 1px solid var(--border); transition: background-color 0.15s;"
+                    onmouseover="this.style.backgroundColor='var(--bg-secondary)'"
+                    onmouseout="this.style.backgroundColor='transparent'"
+                  >
+                    <.icon name="hero-table-cells" class="size-4" />
+                    <span style="font-size: 14px; font-weight: 500;">Export as CSV</span>
+                  </a>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+          <.link navigate={aludel_path("prompts/#{@prompt.id}/edit")} class="button-primary">
+            <.icon name="hero-pencil" class="size-4" /> Edit Prompt
+          </.link>
+        </div>
       </div>
       <div :if={@prompt.tags != []} style="display: flex; gap: 8px;">
         <span :for={tag <- @prompt.tags} class="tag">

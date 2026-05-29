@@ -6,6 +6,8 @@ defmodule Aludel.Web.ExportController do
   import Plug.Conn
 
   alias Aludel.Evals
+  alias Aludel.Prompts
+  alias Aludel.Prompts.Evolution.Export, as: EvolutionExport
   alias Aludel.Runs
   alias Decimal
 
@@ -25,6 +27,45 @@ defmodule Aludel.Web.ExportController do
       |> serialize_suite_run_export()
 
     send_json_download(conn, payload, "suite-run-#{id}.json")
+  end
+
+  @doc """
+  Exports prompt evolution metrics in JSON or CSV format.
+
+  Returns a timestamped download with evolution metrics including version history,
+  performance data, and provider-specific breakdowns.
+  """
+  @spec evolution(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def evolution(conn, %{"id" => id, "format" => format}) do
+    prompt = Prompts.get_prompt!(id)
+    metrics = Prompts.get_evolution_metrics(id)
+
+    case format do
+      "json" ->
+        payload = EvolutionExport.to_json(prompt, metrics)
+        timestamp = DateTime.utc_now() |> DateTime.to_unix()
+        filename = "prompt-evolution-#{timestamp}.json"
+        send_json_download(conn, payload, filename)
+
+      "csv" ->
+        csv_content = EvolutionExport.to_csv(metrics)
+        timestamp = DateTime.utc_now() |> DateTime.to_unix()
+        filename = "prompt-evolution-#{timestamp}.csv"
+
+        conn
+        |> put_resp_header("cache-control", "no-store, max-age=0")
+        |> put_resp_header("pragma", "no-cache")
+        |> put_resp_header("expires", "0")
+        |> send_download({:binary, csv_content},
+          filename: filename,
+          content_type: "text/csv"
+        )
+
+      _ ->
+        conn
+        |> put_status(400)
+        |> send_resp(400, "Unsupported format. Use 'json' or 'csv'.")
+    end
   end
 
   defp send_json_download(conn, payload, filename) do

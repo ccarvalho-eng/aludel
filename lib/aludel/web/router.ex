@@ -64,6 +64,7 @@ defmodule Aludel.Web.Router do
           live "/prompts/new", Aludel.Web.PromptLive.New, :new, route_opts
           live "/prompts/:id/edit", Aludel.Web.PromptLive.New, :edit, route_opts
           live "/prompts/:id/evolution", Aludel.Web.PromptLive.Evolution, :show, route_opts
+          get "/prompts/:id/evolution/export/:format", Aludel.Web.ExportController, :evolution
           live "/prompts/:id", Aludel.Web.PromptLive.Show, :show, route_opts
 
           live "/runs/new", Aludel.Web.RunLive.New, :new, route_opts
