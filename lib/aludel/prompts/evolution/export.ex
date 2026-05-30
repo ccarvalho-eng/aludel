@@ -108,7 +108,29 @@ defmodule Aludel.Prompts.Evolution.Export do
   end
 
   defp csv_row(values) when is_list(values) do
-    Enum.map_join(values, ",", &to_string/1)
+    Enum.map_join(values, ",", &csv_field/1)
+  end
+
+  defp csv_field(nil), do: ""
+  defp csv_field(value) when not is_binary(value), do: to_string(value)
+
+  defp csv_field(value) do
+    value = neutralize_spreadsheet_formula(value)
+    escaped = String.replace(value, "\"", "\"\"")
+
+    if String.contains?(value, [",", "\"", "\n", "\r"]) do
+      ~s("#{escaped}")
+    else
+      escaped
+    end
+  end
+
+  defp neutralize_spreadsheet_formula(value) do
+    if String.starts_with?(String.trim_leading(value), ["=", "+", "-", "@", "\t", "\r"]) do
+      "'" <> value
+    else
+      value
+    end
   end
 
   defp format_number(nil), do: ""

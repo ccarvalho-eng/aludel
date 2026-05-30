@@ -164,6 +164,63 @@ defmodule Aludel.Prompts.Evolution.ExportTest do
       assert row =~ "0.0030"
     end
 
+    test "quotes string fields with CSV control characters" do
+      metrics = [
+        %{
+          version_number: 1,
+          created_at: ~U[2026-01-15 10:00:00Z],
+          total_runs: 1,
+          avg_pass_rate: 100.0,
+          avg_score: Decimal.new("100.0"),
+          avg_cost_usd: Decimal.new("0.001"),
+          avg_latency_ms: 100,
+          provider_breakdown: [
+            %{
+              provider_name: "Provider, \"North\"\nRegion",
+              runs: 1,
+              avg_pass_rate: 100.0,
+              avg_score: Decimal.new("100.0"),
+              avg_cost_usd: Decimal.new("0.001"),
+              avg_latency_ms: 100
+            }
+          ]
+        }
+      ]
+
+      csv = Export.to_csv(metrics)
+
+      assert csv =~ "\"Provider, \"\"North\"\"\nRegion\""
+    end
+
+    test "neutralizes spreadsheet formulas in exported string fields" do
+      metrics = [
+        %{
+          version_number: 1,
+          created_at: ~U[2026-01-15 10:00:00Z],
+          total_runs: 1,
+          avg_pass_rate: 100.0,
+          avg_score: Decimal.new("100.0"),
+          avg_cost_usd: Decimal.new("0.001"),
+          avg_latency_ms: 100,
+          provider_breakdown: [
+            %{
+              provider_name: "=SUM(A1:A2)",
+              runs: 1,
+              avg_pass_rate: 100.0,
+              avg_score: Decimal.new("100.0"),
+              avg_cost_usd: Decimal.new("0.001"),
+              avg_latency_ms: 100
+            }
+          ]
+        }
+      ]
+
+      csv = Export.to_csv(metrics)
+
+      assert csv =~ ",'=SUM(A1:A2),"
+      refute csv =~ ",=SUM(A1:A2),"
+    end
+
     test "generates one row per provider when breakdown exists" do
       metrics = [
         %{
