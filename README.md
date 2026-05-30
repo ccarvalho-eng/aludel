@@ -1,8 +1,5 @@
-<div align="center">
-
-  <img width="200" alt="aludel-logo" src="https://github.com/user-attachments/assets/2c0a457c-0416-4cc4-beef-09dda7a9fa2f" />
-  
-  <p><em>A Phoenix-native workbench for comparing providers, tracking prompt history, and running regression suites.</em></p>
+<div align="left">  
+  <h1>Aludel</h1>
   <p>
     <a href="https://hex.pm/packages/aludel"><img src="https://img.shields.io/hexpm/v/aludel.svg" alt="Hex.pm"/></a>
     <a href="https://github.com/ccarvalho-eng/aludel/actions/workflows/ci.yml"><img src="https://github.com/ccarvalho-eng/aludel/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
