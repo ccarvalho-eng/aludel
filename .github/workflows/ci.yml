@@ -69,7 +69,7 @@ jobs:
       # Dependabot and fork PRs should not fail CI on the upload step.
       - name: Upload coverage to Codecov
         if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: ./cover/excoveralls.json
           flags: elixir
