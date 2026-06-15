@@ -5,6 +5,7 @@
       <%= if @editing_suite_metadata do %>
         <.form
           for={@suite_form}
+          id="suite-metadata-form"
           phx-change="validate_suite_metadata"
           phx-submit="save_suite_metadata"
           style="margin-bottom: 24px;"
@@ -118,8 +119,7 @@
             style={"width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center; #{if @running, do: "opacity: 0.6; cursor: not-allowed;", else: ""}"}
           >
             <%= if @running do %>
-              <span style="display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite;">
-              </span>
+              <span style="display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite;"></span>
               Running...
             <% else %>
               Run Suite
