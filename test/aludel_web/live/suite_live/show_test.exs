@@ -758,6 +758,8 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
       |> element("[phx-click='edit_suite_metadata']")
       |> render_click()
 
+      assert has_element?(view, "#suite-metadata-form")
+
       html =
         view
         |> render_click("save_suite_metadata", %{
