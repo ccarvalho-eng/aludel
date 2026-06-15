@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-06-15
+
+### Changed
+- Refined the README package header with centered branding and the project logo
+- Updated `phoenix_live_view` to 1.2.1, `phoenix` to 1.8.8, `req` to 0.6.1, `req_llm` to 1.16.0, `llm_db` to 2026.6.2, `tailwind` to 0.5.0, and related transitive dependencies
+- Updated the Codecov GitHub Action to v7
+
+### Fixed
+- Suite metadata editing now uses a stable form id for Phoenix LiveView 1.2 form recovery checks
+
 ## [0.4.0] - 2026-05-30
 
 ### Added
