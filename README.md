@@ -1,11 +1,5 @@
-<div align="center">  
+<div align="left">  
   <h1>Aludel - LLM Eval Workbench</h1>
-
-  <br />
-  
-  <img width="200" alt="aludel-logo" src="https://github.com/user-attachments/assets/d12864e0-7d6f-4bea-afa3-63ada29c6f1a" />
-
-  <br /><br />
   
   <p>
     <a href="https://hex.pm/packages/aludel"><img src="https://img.shields.io/hexpm/v/aludel.svg" alt="Hex.pm"/></a>
