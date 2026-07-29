@@ -47,13 +47,13 @@ defmodule Aludel.Providers.PricingTest do
     end
 
     test "resolves canonical LLMDB models across providers" do
-      # gpt-4o and claude-3-5-haiku-20241022 are canonical LLMDB models
+      # gpt-4o and claude-haiku-4-5-20251001 are canonical LLMDB models
       result_openai = Pricing.get_pricing(:openai, "gpt-4o")
       assert result_openai != nil
       assert is_number(result_openai.input)
       assert is_number(result_openai.output)
 
-      result_anthropic = Pricing.get_pricing(:anthropic, "claude-3-5-haiku-20241022")
+      result_anthropic = Pricing.get_pricing(:anthropic, "claude-haiku-4-5-20251001")
       assert result_anthropic != nil
       assert is_number(result_anthropic.input)
       assert is_number(result_anthropic.output)
