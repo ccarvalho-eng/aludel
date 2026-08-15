@@ -8,6 +8,7 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
   import Aludel.ProvidersFixtures
   import Mox
 
+  alias Aludel.Evals
   alias Aludel.Interfaces.HttpClientMock
 
   test "displays suite details", %{conn: conn} do
@@ -35,6 +36,115 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
     {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
 
     assert has_element?(view, "#run-suite-btn")
+  end
+
+  describe "test case import" do
+    test "previews accepted and rejected rows before confirmed persistence", %{conn: conn} do
+      suite = suite_fixture()
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      view
+      |> element("#toggle-test-case-import")
+      |> render_click()
+
+      assert has_element?(view, "#test-case-import-panel")
+
+      payload = "input,expected,assertion\nfirst,ok,contains\nbad,,contains\n"
+
+      upload =
+        file_input(view, "#test-case-import-form", :test_case_import, [
+          %{name: "cases.csv", content: payload, type: "text/csv"}
+        ])
+
+      render_upload(upload, "cases.csv")
+
+      view
+      |> form("#test-case-import-form")
+      |> render_submit()
+
+      assert has_element?(view, "#test-case-import-preview")
+      assert has_element?(view, "#test-case-import-valid-count", "1")
+      assert has_element?(view, "#test-case-import-rejected-count", "1")
+      assert has_element?(view, "#test-case-import-error-3", "expected is required")
+      assert Evals.get_suite_with_test_cases!(suite.id).test_cases == []
+
+      view
+      |> element("#confirm-test-case-import")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "Imported 1 test case(s); 1 row(s) were rejected")
+
+      assert [%{variable_values: %{"input" => "first"}}] =
+               Evals.get_suite_with_test_cases!(suite.id).test_cases
+
+      refute has_element?(view, "#test-case-import-panel")
+    end
+
+    test "keeps malformed JSON recoverable in the import panel", %{conn: conn} do
+      suite = suite_fixture()
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      view
+      |> element("#toggle-test-case-import")
+      |> render_click()
+
+      upload =
+        file_input(view, "#test-case-import-form", :test_case_import, [
+          %{name: "cases.json", content: "{invalid}", type: "application/json"}
+        ])
+
+      render_upload(upload, "cases.json")
+
+      view
+      |> form("#test-case-import-form")
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error", "Invalid JSON payload")
+      assert has_element?(view, "#test-case-import-panel")
+      refute has_element?(view, "#test-case-import-preview")
+      assert Process.alive?(view.pid)
+    end
+
+    test "clears a stale preview when a replacement file is selected", %{conn: conn} do
+      suite = suite_fixture()
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      view
+      |> element("#toggle-test-case-import")
+      |> render_click()
+
+      initial_upload =
+        file_input(view, "#test-case-import-form", :test_case_import, [
+          %{
+            name: "initial.csv",
+            content: "input,expected,assertion\nfirst,ok,contains\n",
+            type: "text/csv"
+          }
+        ])
+
+      render_upload(initial_upload, "initial.csv")
+
+      view
+      |> form("#test-case-import-form")
+      |> render_submit()
+
+      assert has_element?(view, "#test-case-import-preview")
+
+      replacement_upload =
+        file_input(view, "#test-case-import-form", :test_case_import, [
+          %{
+            name: "replacement.json",
+            content: ~s([{"input":"second","expected":"ok","assertion":"contains"}]),
+            type: "application/json"
+          }
+        ])
+
+      render_upload(replacement_upload, "replacement.json")
+
+      refute has_element?(view, "#test-case-import-preview")
+      refute has_element?(view, "#confirm-test-case-import")
+      assert Evals.get_suite_with_test_cases!(suite.id).test_cases == []
+    end
   end
 
   describe "visual test case display" do
