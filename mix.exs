@@ -91,6 +91,7 @@ defmodule Aludel.MixProject do
        only: [:dev, :test]},
       {:req, "~> 0.5"},
       {:req_llm, "~> 1.0"},
+      {:nimble_csv, "~> 1.2"},
       {:ex_aws, "~> 2.6"},
       {:ex_aws_s3, "~> 2.5"},
       {:sweet_xml, "~> 0.7"},
