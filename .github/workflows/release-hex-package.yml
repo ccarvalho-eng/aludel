@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Package version without the leading v, for example 0.4.1"
+        description: "Package version without the leading v, for example 0.4.2"
         required: true
         type: string
 
@@ -46,7 +46,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Setup Elixir
         uses: ./.github/actions/setup-elixir
@@ -85,6 +84,61 @@ jobs:
             exit 1
           fi
 
+          tag_exists=false
+          if git rev-parse "v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            tag_exists=true
+          fi
+
+          release_exists=false
+          if gh release view "v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            release_exists=true
+          fi
+
+          if [ "$tag_exists" = "true" ] || [ "$release_exists" = "true" ]; then
+            if [ "$tag_exists" = "true" ] && [ "$release_exists" = "true" ]; then
+              echo "existing_release=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "::error::release state is partial: tag_exists=${tag_exists}, release_exists=${release_exists}"
+            exit 1
+          fi
+
+          echo "existing_release=false" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout existing release tag
+        if: ${{ steps.release_state.outputs.existing_release == 'true' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: git checkout "v${RELEASE_VERSION}"
+
+      - name: Prepare release metadata
+        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          elixir scripts/aludel_release_prep.exs "$RELEASE_VERSION" \
+            --notes-file /tmp/aludel-release-notes.md
+          mix format
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Verify release
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_SECRET_KEY }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          EXISTING_RELEASE: ${{ steps.release_state.outputs.existing_release }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HEX_API_KEY:-}" ]; then
+            echo "::error::HEX_SECRET_KEY is not configured"
+            exit 1
+          fi
+
           package_version="$(
             elixir -e 'Mix.start(); Code.require_file("mix.exs"); Mix.Project.get!(); IO.write(Mix.Project.config()[:version])'
           )"
@@ -94,53 +148,56 @@ jobs:
             exit 1
           fi
 
-          if git rev-parse "v${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "::error::tag v${RELEASE_VERSION} already exists"
-            exit 1
+          if [ "$EXISTING_RELEASE" != "true" ]; then
+            MIX_ENV=test mix ecto.create
+            MIX_ENV=test mix ecto.migrate
+            mix precommit
           fi
 
-          if gh release view "v${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "::error::release v${RELEASE_VERSION} already exists"
-            exit 1
-          fi
-
-      - name: Install dependencies
-        run: mix deps.get
-
-      - name: Verify release
-        env:
-          HEX_API_KEY: ${{ secrets.HEX_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${HEX_API_KEY:-}" ]; then
-            echo "::error::HEX_SECRET_KEY is not configured"
-            exit 1
-          fi
-
-          MIX_ENV=test mix ecto.create
-          MIX_ENV=test mix ecto.migrate
-          mix precommit
           mix hex.publish --dry-run --yes
           mix hex.build --unpack --output /tmp/aludel-hex-package
 
-      - name: Create GitHub release
+      - name: Commit release metadata
+        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mix.exs README.md CHANGELOG.md
+
+          if git diff --cached --quiet; then
+            echo "::error::release metadata did not change"
+            exit 1
+          fi
+
+          git commit \
+            -m "chore: release ${RELEASE_VERSION}" \
+            -m "Update Aludel package metadata and changelog for ${RELEASE_VERSION}."
+
+      - name: Tag and push release
+        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
           git tag -a "v${RELEASE_VERSION}" -m "Release ${RELEASE_VERSION}"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "v${RELEASE_VERSION}"
+          git push --atomic origin HEAD:main "v${RELEASE_VERSION}"
+
+      - name: Create GitHub release
+        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
 
           gh release create "v${RELEASE_VERSION}" \
-            --target main \
             --title "v${RELEASE_VERSION}" \
-            --generate-notes
+            --notes-file /tmp/aludel-release-notes.md
 
       - name: Publish package
         env:
