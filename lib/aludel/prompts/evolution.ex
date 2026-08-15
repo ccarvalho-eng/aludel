@@ -7,6 +7,7 @@ defmodule Aludel.Prompts.Evolution do
   import Ecto.Query
 
   alias Aludel.Evals.SuiteRun
+  alias Aludel.Prompts.Evolution.Deltas
   alias Aludel.Prompts.PromptVersion
   alias Aludel.Providers.Provider
 
@@ -29,6 +30,7 @@ defmodule Aludel.Prompts.Evolution do
     prompt_id
     |> get_versions()
     |> Enum.map(&build_version_metrics/1)
+    |> Deltas.annotate()
   end
 
   @doc false

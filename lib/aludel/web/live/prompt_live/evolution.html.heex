@@ -185,7 +185,10 @@
             </thead>
             <tbody>
               <%= for metric <- @metrics do %>
-                <tr style="border-bottom: 1px solid var(--border); transition: background-color 0.15s;">
+                <tr
+                  id={"evolution-version-#{metric.version_number}"}
+                  style="border-bottom: 1px solid var(--border); transition: background-color 0.15s;"
+                >
                   <td style="padding: 16px; font-weight: 600; color: var(--text-primary);">
                     v{metric.version_number}
                   </td>
@@ -218,6 +221,10 @@
                     <% else %>
                       <span style="color: var(--text-muted);">—</span>
                     <% end %>
+                    <Aludel.Web.EvolutionComponents.metric_delta
+                      metric={:pass_rate}
+                      delta={metric.deltas.pass_rate}
+                    />
                   </td>
                   <td style="padding: 16px; font-size: 14px; color: var(--text-secondary);">
                     <%= if metric.avg_score do %>
@@ -238,6 +245,10 @@
                     <% else %>
                       <span style="color: var(--text-muted);">—</span>
                     <% end %>
+                    <Aludel.Web.EvolutionComponents.metric_delta
+                      metric={:cost_usd}
+                      delta={metric.deltas.cost_usd}
+                    />
                   </td>
                   <td style="padding: 16px; font-size: 14px; color: var(--text-secondary);">
                     <%= if metric.avg_latency_ms do %>
@@ -245,6 +256,10 @@
                     <% else %>
                       <span style="color: var(--text-muted);">—</span>
                     <% end %>
+                    <Aludel.Web.EvolutionComponents.metric_delta
+                      metric={:latency_ms}
+                      delta={metric.deltas.latency_ms}
+                    />
                   </td>
                 </tr>
               <% end %>
@@ -341,6 +356,10 @@
                       —
                     </div>
                   <% end %>
+                  <Aludel.Web.EvolutionComponents.metric_delta
+                    metric={:pass_rate}
+                    delta={metric.deltas.pass_rate}
+                  />
                 </div>
 
                 <div style="padding: 12px; background-color: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border);">
@@ -373,6 +392,10 @@
                       —
                     </div>
                   <% end %>
+                  <Aludel.Web.EvolutionComponents.metric_delta
+                    metric={:cost_usd}
+                    delta={metric.deltas.cost_usd}
+                  />
                 </div>
 
                 <div style="padding: 12px; background-color: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border);">
@@ -388,6 +411,10 @@
                       —
                     </div>
                   <% end %>
+                  <Aludel.Web.EvolutionComponents.metric_delta
+                    metric={:latency_ms}
+                    delta={metric.deltas.latency_ms}
+                  />
                 </div>
               </div>
 
@@ -399,7 +426,10 @@
                   </h4>
                   <div style="display: flex; flex-direction: column; gap: 10px;">
                     <%= for breakdown <- Enum.sort_by(metric.provider_breakdown, & &1.avg_pass_rate, :desc) do %>
-                      <div style="padding: 14px; background-color: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px;">
+                      <div
+                        id={"provider-breakdown-#{metric.version_number}-#{breakdown.provider_id}"}
+                        style="padding: 14px; background-color: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px;"
+                      >
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                           <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">
                             {breakdown.provider_name}
@@ -431,11 +461,55 @@
                             {pass_rate}%
                           </span>
                         <% end %>
+                        <Aludel.Web.EvolutionComponents.metric_delta
+                          metric={:pass_rate}
+                          delta={breakdown.deltas.pass_rate}
+                          compact
+                        />
                         <div
                           :if={breakdown.avg_score}
                           style="margin-top: 8px; font-size: 12px; color: #8b5cf6; font-weight: 600;"
                         >
                           {Decimal.to_float(breakdown.avg_score)}% avg score
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px;">
+                          <div>
+                            <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">
+                              Avg Cost
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-secondary); font-family: 'SF Mono', Monaco, monospace;">
+                              <%= if breakdown.avg_cost_usd do %>
+                                ${:erlang.float_to_binary(
+                                  Decimal.to_float(breakdown.avg_cost_usd),
+                                  decimals: 4
+                                )}
+                              <% else %>
+                                —
+                              <% end %>
+                            </div>
+                            <Aludel.Web.EvolutionComponents.metric_delta
+                              metric={:cost_usd}
+                              delta={breakdown.deltas.cost_usd}
+                              compact
+                            />
+                          </div>
+                          <div>
+                            <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">
+                              Avg Latency
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">
+                              <%= if breakdown.avg_latency_ms do %>
+                                {breakdown.avg_latency_ms}ms
+                              <% else %>
+                                —
+                              <% end %>
+                            </div>
+                            <Aludel.Web.EvolutionComponents.metric_delta
+                              metric={:latency_ms}
+                              delta={breakdown.deltas.latency_ms}
+                              compact
+                            />
+                          </div>
                         </div>
                       </div>
                     <% end %>
