@@ -21,11 +21,60 @@ defmodule Aludel.Web.PromptLive.Show do
      socket
      |> assign(:page_title, prompt.name)
      |> assign(:prompt, prompt)
-     |> assign(:selected_version_id, latest_version && latest_version.id)}
+     |> select_version(prompt, latest_version && latest_version.id)}
   end
 
   @impl Phoenix.LiveView
   def handle_event("select_version", %{"version-id" => version_id}, socket) do
-    {:noreply, assign(socket, :selected_version_id, version_id)}
+    {:noreply, select_version(socket, socket.assigns.prompt, version_id)}
+  end
+
+  def handle_event("show_version_diff", _params, socket) do
+    if socket.assigns.version_comparison do
+      {:noreply, assign(socket, :show_version_diff, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("hide_version_diff", _params, socket) do
+    {:noreply, assign(socket, :show_version_diff, false)}
+  end
+
+  defp select_version(socket, prompt, version_id) do
+    socket
+    |> assign(:selected_version_id, version_id)
+    |> assign(:version_comparison, version_comparison(prompt.versions, version_id))
+    |> assign(:show_version_diff, false)
+  end
+
+  defp version_comparison(versions, selected_version_id) do
+    case Enum.find_index(versions, &(&1.id == selected_version_id)) do
+      nil ->
+        nil
+
+      index ->
+        current_version = Enum.at(versions, index)
+        previous_version = Enum.at(versions, index + 1)
+        build_version_comparison(previous_version, current_version)
+    end
+  end
+
+  defp build_version_comparison(nil, _current_version) do
+    nil
+  end
+
+  defp build_version_comparison(previous_version, current_version) do
+    %{
+      current_version: current_version,
+      previous_version: previous_version,
+      template_diff:
+        List.myers_difference(
+          String.split(previous_version.template, "\n"),
+          String.split(current_version.template, "\n")
+        ),
+      added_variables: current_version.variables -- previous_version.variables,
+      removed_variables: previous_version.variables -- current_version.variables
+    }
   end
 end
