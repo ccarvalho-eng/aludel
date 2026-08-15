@@ -259,7 +259,12 @@ defmodule Aludel.Evals.TestCaseImporter do
     headers
     |> Enum.with_index()
     |> Enum.reduce(%{}, fn {header, index}, acc ->
-      value = Enum.at(values, index)
+      value =
+        case Enum.at(values, index) do
+          nil -> nil
+          value -> :binary.copy(value)
+        end
+
       Map.put(acc, header, value)
     end)
   end

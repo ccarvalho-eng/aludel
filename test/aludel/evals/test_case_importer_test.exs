@@ -98,5 +98,16 @@ defmodule Aludel.Evals.TestCaseImporterTest do
     test "reports invalid UTF-8 CSV without raising" do
       assert {:error, "Invalid CSV payload"} = TestCaseImporter.parse_csv(<<255>>)
     end
+
+    test "copies retained fields out of the source CSV binary" do
+      ignored_column = String.duplicate("x", 1_000_000)
+      payload = "input,expected,assertion,notes\nfirst,ok,contains,#{ignored_column}\n"
+
+      assert {:ok, result} = TestCaseImporter.parse_csv(payload)
+      [test_case] = result.summary.test_cases
+      input = test_case.variable_values["input"]
+
+      assert :binary.referenced_byte_size(input) == byte_size(input)
+    end
   end
 end
