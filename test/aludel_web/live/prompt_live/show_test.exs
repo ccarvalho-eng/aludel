@@ -108,5 +108,61 @@ defmodule Aludel.Web.PromptLive.ShowTest do
 
       assert has_element?(view, "a[href=\"/prompts/#{prompt.id}/evolution\"]")
     end
+
+    test "compares the selected version with its previous version", %{conn: conn} do
+      prompt = prompt_fixture(%{name: "Comparable Prompt"})
+
+      {:ok, _v1} =
+        Prompts.create_prompt_version(prompt, "System prompt\nHello {{name}} from {{legacy}}")
+
+      {:ok, _v2} =
+        Prompts.create_prompt_version(prompt, "System prompt\nHi {{name}} about {{topic}}")
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}")
+
+      assert has_element?(view, "#compare-version-button")
+
+      view
+      |> element("#compare-version-button")
+      |> render_click()
+
+      assert has_element?(view, "#prompt-version-diff")
+
+      assert has_element?(
+               view,
+               "#template-diff-lines [data-diff-kind='del']",
+               "Hello {{name}} from {{legacy}}"
+             )
+
+      assert has_element?(
+               view,
+               "#template-diff-lines [data-diff-kind='ins']",
+               "Hi {{name}} about {{topic}}"
+             )
+
+      assert has_element?(view, "#variable-diff [data-variable-change='added']", "topic")
+      assert has_element?(view, "#variable-diff [data-variable-change='removed']", "legacy")
+
+      view
+      |> element("#close-version-diff")
+      |> render_click()
+
+      assert has_element?(view, "#prompt-version-content")
+      refute has_element?(view, "#prompt-version-diff")
+    end
+
+    test "does not offer a comparison for the oldest version", %{conn: conn} do
+      prompt = prompt_fixture(%{name: "Oldest Prompt"})
+      {:ok, oldest_version} = Prompts.create_prompt_version(prompt, "Original")
+      {:ok, _latest_version} = Prompts.create_prompt_version(prompt, "Updated")
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}")
+
+      view
+      |> element("#prompt-version-#{oldest_version.id}")
+      |> render_click()
+
+      refute has_element?(view, "#compare-version-button")
+    end
   end
 end
