@@ -12,6 +12,7 @@ defmodule Aludel.Web.SuiteLive.Show do
   alias Aludel.Evals.AssertionParser
   alias Aludel.Evals.DocumentIngestion
   alias Aludel.Evals.TestCaseEditor
+  alias Aludel.Evals.TestCaseImporter
   alias Aludel.Executor
   alias Aludel.Projects
   alias Aludel.Prompts
@@ -20,6 +21,17 @@ defmodule Aludel.Web.SuiteLive.Show do
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
+    socket =
+      socket
+      |> assign(:show_test_case_import, false)
+      |> assign(:test_case_import_preview, nil)
+      |> assign(:test_case_import_form, to_form(%{}, as: :test_case_import))
+      |> allow_upload(:test_case_import,
+        accept: ~w(.csv .json),
+        max_entries: 1,
+        max_file_size: 2_000_000
+      )
+
     {:ok, socket}
   end
 
@@ -198,6 +210,96 @@ defmodule Aludel.Web.SuiteLive.Show do
 
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Failed to create test case")}
+    end
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("toggle_test_case_import", _params, socket) do
+    socket =
+      if socket.assigns.show_test_case_import do
+        reset_test_case_import(socket)
+      else
+        assign(socket, :show_test_case_import, true)
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("validate_test_case_import", _params, socket) do
+    {:noreply, assign(socket, :test_case_import_preview, nil)}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("cancel_test_case_import_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :test_case_import, ref)}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("preview_test_case_import", _params, socket) do
+    results =
+      consume_uploaded_entries(socket, :test_case_import, fn %{path: path}, entry ->
+        {:ok, parse_test_case_import(path, entry.client_name)}
+      end)
+
+    socket =
+      case results do
+        [{:ok, preview}] ->
+          socket
+          |> assign(:test_case_import_preview, preview)
+          |> clear_flash(:error)
+
+        [{:error, message}] ->
+          socket
+          |> assign(:test_case_import_preview, nil)
+          |> put_flash(:error, message)
+
+        [] ->
+          put_flash(socket, :error, "Choose a CSV or JSON file to preview")
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event(
+        "confirm_test_case_import",
+        _params,
+        %{assigns: %{uploads: %{test_case_import: %{entries: [_entry | _entries]}}}} = socket
+      ) do
+    {:noreply,
+     socket
+     |> assign(:test_case_import_preview, nil)
+     |> put_flash(:error, "Preview the selected file before importing")}
+  end
+
+  def handle_event("confirm_test_case_import", _params, socket) do
+    case socket.assigns.test_case_import_preview do
+      %{summary: %{test_cases: []}} ->
+        {:noreply, put_flash(socket, :error, "No valid test cases are available to import")}
+
+      %{summary: %{test_cases: test_case_attrs, rejected: rejected}} ->
+        case Evals.import_test_cases(socket.assigns.suite, test_case_attrs) do
+          {:ok, test_cases} ->
+            suite = Evals.get_suite_with_test_cases_and_prompt!(socket.assigns.suite.id)
+
+            {:noreply,
+             socket
+             |> assign(:suite, suite)
+             |> reset_test_case_import()
+             |> put_flash(:info, import_success_message(length(test_cases), rejected))}
+
+          {:error, %{row: row}} ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "Import could not save valid row #{row}; no rows were added"
+             )}
+        end
+
+      nil ->
+        {:noreply, put_flash(socket, :error, "Preview a CSV or JSON file before importing")}
     end
   end
 
@@ -386,6 +488,39 @@ defmodule Aludel.Web.SuiteLive.Show do
       end
 
     {:noreply, socket}
+  end
+
+  defp parse_test_case_import(path, client_name) do
+    case File.read(path) do
+      {:ok, payload} ->
+        case client_name |> Path.extname() |> String.downcase() do
+          ".csv" -> TestCaseImporter.parse_csv(payload)
+          ".json" -> TestCaseImporter.parse_json(payload)
+          _extension -> {:error, "Import file must be CSV or JSON"}
+        end
+
+      {:error, _reason} ->
+        {:error, "Import file could not be read"}
+    end
+  end
+
+  defp reset_test_case_import(socket) do
+    socket =
+      Enum.reduce(socket.assigns.uploads.test_case_import.entries, socket, fn entry, socket ->
+        cancel_upload(socket, :test_case_import, entry.ref)
+      end)
+
+    socket
+    |> assign(:show_test_case_import, false)
+    |> assign(:test_case_import_preview, nil)
+  end
+
+  defp import_success_message(created, 0) do
+    "Imported #{created} test case(s)"
+  end
+
+  defp import_success_message(created, rejected) do
+    "Imported #{created} test case(s); #{rejected} row(s) were rejected"
   end
 
   defp handle_test_case_uploads(socket, test_case) do
