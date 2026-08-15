@@ -1,0 +1,156 @@
+name: Release Hex Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version without the leading v, for example 0.4.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  ELIXIR_VERSION: "1.19.5"
+  OTP_VERSION: "28.4.1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release to GitHub and Hex.pm
+    runs-on: ubuntu-latest
+    environment: hex-publish
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aludel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Elixir
+        uses: ./.github/actions/setup-elixir
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Wait for Postgres
+        run: |
+          for attempt in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              exit 0
+            fi
+
+            sleep 1
+          done
+
+          echo "::error::PostgreSQL did not become ready"
+          exit 1
+
+      - name: Validate requested version
+        id: release_state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if ! elixir -e '
+            case Version.parse(System.fetch_env!("RELEASE_VERSION")) do
+              {:ok, _version} -> :ok
+              :error -> System.halt(1)
+            end
+          '; then
+            echo "::error::version must be SemVer without a leading v"
+            exit 1
+          fi
+
+          package_version="$(
+            elixir -e 'Mix.start(); Code.require_file("mix.exs"); Mix.Project.get!(); IO.write(Mix.Project.config()[:version])'
+          )"
+
+          if [ "$package_version" != "$RELEASE_VERSION" ]; then
+            echo "::error::requested version ${RELEASE_VERSION} does not match mix.exs version ${package_version}"
+            exit 1
+          fi
+
+          if git rev-parse "v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "::error::tag v${RELEASE_VERSION} already exists"
+            exit 1
+          fi
+
+          if gh release view "v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "::error::release v${RELEASE_VERSION} already exists"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Verify release
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HEX_API_KEY:-}" ]; then
+            echo "::error::HEX_SECRET_KEY is not configured"
+            exit 1
+          fi
+
+          MIX_ENV=test mix ecto.create
+          MIX_ENV=test mix ecto.migrate
+          mix precommit
+          mix hex.publish --dry-run --yes
+          mix hex.build --unpack --output /tmp/aludel-hex-package
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${RELEASE_VERSION}" -m "Release ${RELEASE_VERSION}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "v${RELEASE_VERSION}"
+
+          gh release create "v${RELEASE_VERSION}" \
+            --target main \
+            --title "v${RELEASE_VERSION}" \
+            --generate-notes
+
+      - name: Publish package
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HEX_API_KEY:-}" ]; then
+            echo "::error::HEX_SECRET_KEY is not configured"
+            exit 1
+          fi
+
+          mix hex.publish --yes
