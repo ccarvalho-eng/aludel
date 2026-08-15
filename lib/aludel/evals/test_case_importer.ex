@@ -65,9 +65,6 @@ defmodule Aludel.Evals.TestCaseImporter do
 
       [header | data_rows] ->
         parse_csv_rows(header, data_rows)
-
-      _ ->
-        {:error, "CSV file must include at least one header row"}
     end
   rescue
     NimbleCSV.ParseError ->
@@ -196,10 +193,6 @@ defmodule Aludel.Evals.TestCaseImporter do
   defp normalize_row(row) when is_map(row) do
     row
     |> Map.new(fn {key, value} -> {to_lower_string(key), normalize_value(value)} end)
-  end
-
-  defp normalize_row(_row) do
-    %{}
   end
 
   defp normalize_value(nil) do
