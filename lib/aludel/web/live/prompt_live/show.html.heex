@@ -50,9 +50,9 @@
       </div>
     </div>
 
-    <div :if={@prompt.versions != []} class="relative flex flex-col gap-6 lg:flex-row">
+    <div :if={@prompt.versions != []} class={["relative flex flex-col gap-6 lg:flex-row"]}>
       <%!-- Main content area --%>
-      <div class="min-w-0 flex-1">
+      <div class={["min-w-0 flex-1"]}>
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;">
           <div>
             <h2 style="margin: 0; font-size: 18px; font-weight: 600;">
@@ -74,7 +74,7 @@
             id="compare-version-button"
             type="button"
             phx-click="show_version_diff"
-            class="button-secondary"
+            class={["button-secondary"]}
             style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 13px;"
           >
             <.icon name="hero-arrows-right-left" class="size-4" />
@@ -86,7 +86,7 @@
         <div
           :if={selected_version && @show_version_diff && @version_comparison}
           id="prompt-version-diff"
-          class="aludel-card"
+          class={["aludel-card"]}
         >
           <div style="display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 16px;">
             <div>
@@ -101,7 +101,7 @@
               id="close-version-diff"
               type="button"
               phx-click="hide_version_diff"
-              class="button-secondary"
+              class={["button-secondary"]}
               style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; font-size: 12px;"
             >
               <.icon name="hero-x-mark" class="size-4" /> Close diff
@@ -163,7 +163,7 @@
               <span
                 :for={variable <- @version_comparison.added_variables}
                 data-variable-change="added"
-                class="tag"
+                class={["tag"]}
                 style="border-color: rgba(22, 163, 74, 0.45); color: #16a34a;"
               >
                 + {variable}
@@ -171,7 +171,7 @@
               <span
                 :for={variable <- @version_comparison.removed_variables}
                 data-variable-change="removed"
-                class="tag"
+                class={["tag"]}
                 style="border-color: rgba(220, 38, 38, 0.45); color: #dc2626;"
               >
                 - {variable}
@@ -183,7 +183,7 @@
         <div
           :if={selected_version && !@show_version_diff}
           id="prompt-version-content"
-          class="aludel-card"
+          class={["aludel-card"]}
         >
           <div style="border-radius: 6px; padding: 14px; margin-bottom: 14px; background-color: var(--bg-tertiary); border: 1px solid var(--border);">
             <pre style="font-size: 13px; white-space: pre-wrap; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; margin: 0; max-height: 500px; overflow-y: auto; line-height: 1.5;">{selected_version.template}</pre>
@@ -214,7 +214,10 @@
       </div>
 
       <%!-- Timeline sidebar --%>
-      <div class="w-full shrink-0 border-t border-[var(--border)] pt-6 lg:w-80 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6">
+      <div class={[
+        "w-full shrink-0 border-t border-[var(--border)] pt-6",
+        "lg:w-80 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6"
+      ]}>
         <h3 style="margin: 0 0 16px 0; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; gap: 6px;">
           <.icon name="hero-clock" class="size-3" /> History
         </h3>
