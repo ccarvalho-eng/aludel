@@ -20,6 +20,7 @@ defmodule Aludel.Evals do
   alias Aludel.Storage
   alias Ecto.Association.NotLoaded
   alias Ecto.Changeset
+  alias Ecto.Multi
 
   # Suite functions
 
@@ -164,6 +165,44 @@ defmodule Aludel.Evals do
     %TestCase{}
     |> TestCase.changeset(attrs)
     |> repo().insert()
+  end
+
+  @doc """
+  Imports test case attributes into an existing suite as one transaction.
+
+  The suite association is set from the supplied suite rather than accepted
+  from imported attributes. If any row fails validation, no test cases are
+  persisted and the failing row index is returned with its changeset.
+  """
+  @spec import_test_cases(Suite.t(), [map()]) ::
+          {:ok, [TestCase.t()]}
+          | {:error, %{row: pos_integer(), changeset: Changeset.t()}}
+  def import_test_cases(%Suite{} = suite, test_case_attrs) when is_list(test_case_attrs) do
+    indexed_attrs = Enum.with_index(test_case_attrs, 1)
+
+    multi =
+      Enum.reduce(indexed_attrs, Multi.new(), fn {attrs, row}, multi ->
+        sanitized_attrs = Map.drop(attrs, [:suite_id, "suite_id"])
+
+        changeset =
+          %TestCase{suite_id: suite.id}
+          |> TestCase.changeset(sanitized_attrs)
+
+        Multi.insert(multi, {:test_case, row}, changeset)
+      end)
+
+    case repo().transaction(multi) do
+      {:ok, changes} ->
+        test_cases =
+          Enum.map(indexed_attrs, fn {_attrs, row} ->
+            Map.fetch!(changes, {:test_case, row})
+          end)
+
+        {:ok, test_cases}
+
+      {:error, {:test_case, row}, changeset, _changes} ->
+        {:error, %{row: row, changeset: changeset}}
+    end
   end
 
   @doc """
