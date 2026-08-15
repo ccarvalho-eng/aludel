@@ -48,6 +48,7 @@ defmodule Aludel.Evals.TestCase do
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_assertions()
+    |> foreign_key_constraint(:suite_id)
   end
 
   defp validate_assertions(%Changeset{} = changeset) do
