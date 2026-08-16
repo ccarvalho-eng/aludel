@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-08-15
+
+### Added
+- CSV and JSON test case imports with validation, preview, row-level errors, and persisted suite test cases
+- Side-by-side prompt version diffs for reviewing template changes
+- Pass-rate, cost, and latency deltas across prompt versions and providers
+- A headless `mix aludel.eval` task that runs a suite, emits machine-readable JSON, and returns a failing exit status when the evaluation does not pass
+
+### Changed
+- Updated Phoenix, LiveView, Ecto, Req, ReqLLM, LLM DB, Tailwind, and related transitive dependencies, including security fixes
+- Automated release metadata preparation and verification for GitHub and Hex publishing
+- Excluded generated Dialyzer cache files from the Hex package
+
 ## [0.4.1] - 2026-06-15
 
 ### Changed

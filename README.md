@@ -1,6 +1,6 @@
-<div align="left">  
+<div align="left">
   <h1>Aludel - LLM Eval Workbench</h1>
-  
+
   <p>
     <a href="https://hex.pm/packages/aludel"><img src="https://img.shields.io/hexpm/v/aludel.svg" alt="Hex.pm"/></a>
     <a href="https://github.com/ccarvalho-eng/aludel/actions/workflows/ci.yml"><img src="https://github.com/ccarvalho-eng/aludel/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
@@ -13,8 +13,9 @@ Aludel gives teams a clean way to evaluate prompt and model behavior without inv
 
 - Compare the same prompt across OpenAI, Anthropic, Gemini, and Ollama.
 - Inspect output, latency, token usage, and cost side by side.
-- Version prompts and see how changes affect results over time.
-- Run evaluation suites with assertions and document attachments.
+- Compare prompt versions and see pass-rate, cost, and latency changes over time.
+- Run evaluation suites with assertions, document attachments, and CSV or JSON test case imports.
+- Execute suites headlessly with machine-readable JSON output for CI workflows.
 - Route runs and suites through your app's real LLM workflow with callback execution.
 - Use it inside an existing Phoenix app or run it standalone.
 
@@ -52,6 +53,13 @@ For structured outputs, use `json_deep_compare` to score partial matches instead
 
 Aludel stores field-level comparison details, per-test match scores, and suite-run average scores so prompt evolution and exports can track structured output quality over time.
 
+## Test Case Imports
+
+Suite pages can import test cases from CSV or JSON. Aludel validates the file and shows a preview with row-level errors before saving any accepted test cases.
+
+- JSON files contain an array of objects with `input`, `expected`, and `assertion` keys.
+- CSV files use an `input,expected,assertion` header row and may include `notes`.
+
 ## Quick Start
 
 ### Embed in an existing Phoenix app
@@ -67,7 +75,7 @@ Aludel depends on PostgreSQL-specific features, including `JSONB`, `percentile_d
 ```elixir
 def deps do
   [
-    {:aludel, "~> 0.4"}
+    {:aludel, "~> 0.4.2"}
   ]
 end
 ```
@@ -171,6 +179,19 @@ In callback mode, the existing run and suite UI stays the same:
 - the run and suite screens show `Execution Mode`
 - missing token or cost metrics render as `N/A`
 - exports include callback metadata when present
+
+### Headless suite execution
+
+Run a suite from scripts or CI with stable JSON output:
+
+```bash
+mix aludel.eval \
+  --suite-id SUITE_ID \
+  --prompt-version-id PROMPT_VERSION_ID \
+  --provider-id PROVIDER_ID
+```
+
+The task exits unsuccessfully when its arguments or targets are invalid, execution cannot complete, the suite has no test cases, or any test case fails.
 
 ### Standalone mode
 
