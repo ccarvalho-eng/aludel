@@ -138,6 +138,109 @@
         </div>
       </section>
 
+      <section
+        id="reflection-workflow"
+        class="aludel-card"
+        style="margin-bottom: 24px; padding: 20px;"
+      >
+        <div style="margin-bottom: 16px;">
+          <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Failure reflection</h2>
+          <p class="text-sm text-secondary" style="margin: 4px 0 0;">
+            Generate a failure-grounded revision, then explicitly accept or dismiss it
+          </p>
+        </div>
+
+        <form
+          :if={@selected_suite && @providers != []}
+          id="reflection-form"
+          phx-submit="generate_prompt_suggestion"
+          style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; margin-bottom: 20px;"
+        >
+          <div>
+            <label for="reflection-source-version" class="text-sm text-secondary">
+              Source version
+            </label>
+            <select
+              id="reflection-source-version"
+              name="suggestion[source_version_id]"
+              style="display: block; width: 100%; margin-top: 4px;"
+            >
+              <option :for={metric <- @metrics} value={metric.version_id}>
+                v{metric.version_number}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label for="reflection-provider" class="text-sm text-secondary">
+              Reflection provider
+            </label>
+            <select
+              id="reflection-provider"
+              name="suggestion[provider_id]"
+              style="display: block; width: 100%; margin-top: 4px;"
+            >
+              <option :for={provider <- @providers} value={provider.id}>{provider.name}</option>
+            </select>
+          </div>
+          <button
+            type="submit"
+            class="button-primary"
+            disabled={@generating_suggestion}
+            phx-disable-with="Generating…"
+          >
+            {if @generating_suggestion, do: "Generating…", else: "Generate suggestion"}
+          </button>
+        </form>
+
+        <div :if={@selected_suite == nil || @providers == []} class="text-sm text-secondary">
+          Add an evaluation suite and provider to generate reflections.
+        </div>
+
+        <div id="prompt-suggestions" style="display: flex; flex-direction: column; gap: 12px;">
+          <article
+            :for={suggestion <- @suggestions}
+            id={"prompt-suggestion-#{suggestion.id}"}
+            data-status={suggestion.status}
+            style="padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary);"
+          >
+            <div style="display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px;">
+              <div>
+                <strong>From v{suggestion.source_version.version}</strong>
+                <span class="text-sm text-secondary">
+                  · {suggestion.suite.name} · {suggestion.provider.name}
+                </span>
+              </div>
+              <span class="tag">{suggestion.status}</span>
+            </div>
+            <p class="text-sm" style="margin: 0 0 10px;">{suggestion.rationale}</p>
+            <pre style="white-space: pre-wrap; margin: 0; padding: 10px; border-radius: 6px; background: var(--bg-tertiary); font-size: 12px;">{suggestion.suggested_template}</pre>
+            <div
+              :if={suggestion.status == :pending}
+              style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;"
+            >
+              <button
+                id={"dismiss-suggestion-#{suggestion.id}"}
+                type="button"
+                phx-click="dismiss_prompt_suggestion"
+                phx-value-id={suggestion.id}
+                class="button-secondary"
+              >
+                Dismiss
+              </button>
+              <button
+                id={"accept-suggestion-#{suggestion.id}"}
+                type="button"
+                phx-click="accept_prompt_suggestion"
+                phx-value-id={suggestion.id}
+                class="button-primary"
+              >
+                Accept as new version
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <div class="aludel-card" style="margin-bottom: 24px;">
         <div style="padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
           <div style="display: flex; align-items: center; gap: 10px;">

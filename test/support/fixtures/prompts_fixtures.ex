@@ -3,6 +3,8 @@ defmodule Aludel.PromptsFixtures do
   Test fixtures for creating prompts.
   """
 
+  alias Aludel.Prompts.Optimization
+
   def prompt_fixture(attrs \\ %{}) do
     {:ok, prompt} =
       attrs
@@ -23,5 +25,10 @@ defmodule Aludel.PromptsFixtures do
     {:ok, _version} = Aludel.Prompts.create_prompt_version(prompt, template)
 
     Aludel.Prompts.get_prompt_with_versions!(prompt.id)
+  end
+
+  def prompt_suggestion_fixture(attrs) do
+    {:ok, suggestion} = Optimization.create_suggestion(attrs)
+    suggestion
   end
 end

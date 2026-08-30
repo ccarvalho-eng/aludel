@@ -9,6 +9,7 @@ defmodule Aludel.Web.PromptLive.Evolution do
   alias Aludel.Evals
   alias Aludel.Prompts
   alias Aludel.Prompts.{Evolution, Optimization}
+  alias Aludel.Providers
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -16,7 +17,8 @@ defmodule Aludel.Web.PromptLive.Evolution do
      assign(socket,
        view_mode: :overall,
        show_breakdown_sidebar: false,
-       show_export_dropdown: false
+       show_export_dropdown: false,
+       generating_suggestion: false
      )}
   end
 
@@ -29,6 +31,8 @@ defmodule Aludel.Web.PromptLive.Evolution do
     metrics = Prompts.get_evolution_metrics(id, metric_options)
     chart_data = Evolution.prepare_chart_data(metrics)
     pareto_analysis = Optimization.analyze(metrics)
+    providers = Providers.list_providers()
+    suggestions = Optimization.list_suggestions(id)
 
     # Reverse metrics for table display (descending order: newest first)
     reversed_metrics = Enum.reverse(metrics)
@@ -41,6 +45,8 @@ defmodule Aludel.Web.PromptLive.Evolution do
      |> assign(:suites, suites)
      |> assign(:selected_suite, selected_suite)
      |> assign(:pareto_analysis, pareto_analysis)
+     |> assign(:providers, providers)
+     |> assign(:suggestions, suggestions)
      |> assign(:metrics, reversed_metrics)
      |> assign(:chart_data, chart_data)}
   end
@@ -88,6 +94,83 @@ defmodule Aludel.Web.PromptLive.Evolution do
      push_patch(socket,
        to: aludel_path("prompts/#{socket.assigns.prompt.id}/evolution?suite_id=#{suite_id}")
      )}
+  end
+
+  def handle_event(
+        "generate_prompt_suggestion",
+        %{
+          "suggestion" => %{
+            "source_version_id" => source_version_id,
+            "provider_id" => provider_id
+          }
+        },
+        %{assigns: %{generating_suggestion: false}} = socket
+      ) do
+    case socket.assigns.selected_suite do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Create an evaluation suite first.")}
+
+      suite ->
+        socket =
+          start_async(socket, :generate_suggestion, fn ->
+            Optimization.generate_suggestion(source_version_id, suite.id, provider_id)
+          end)
+
+        {:noreply, assign(socket, :generating_suggestion, true)}
+    end
+  end
+
+  def handle_event("generate_prompt_suggestion", _params, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("accept_prompt_suggestion", %{"id" => suggestion_id}, socket) do
+    case Optimization.accept_suggestion(suggestion_id, socket.assigns.prompt.id) do
+      {:ok, _suggestion} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Suggestion accepted as a new prompt version.")
+         |> push_patch(to: current_evolution_path(socket))}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, suggestion_error(reason))}
+    end
+  end
+
+  def handle_event("dismiss_prompt_suggestion", %{"id" => suggestion_id}, socket) do
+    case Optimization.dismiss_suggestion(suggestion_id, socket.assigns.prompt.id) do
+      {:ok, _suggestion} ->
+        {:noreply,
+         socket
+         |> assign(:suggestions, Optimization.list_suggestions(socket.assigns.prompt.id))
+         |> put_flash(:info, "Suggestion dismissed.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, suggestion_error(reason))}
+    end
+  end
+
+  @impl Phoenix.LiveView
+  def handle_async(:generate_suggestion, {:ok, {:ok, _suggestion}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:generating_suggestion, false)
+     |> assign(:suggestions, Optimization.list_suggestions(socket.assigns.prompt.id))
+     |> put_flash(:info, "Prompt suggestion generated for review.")}
+  end
+
+  def handle_async(:generate_suggestion, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:generating_suggestion, false)
+     |> put_flash(:error, suggestion_error(reason))}
+  end
+
+  def handle_async(:generate_suggestion, {:exit, _reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:generating_suggestion, false)
+     |> put_flash(:error, "The prompt suggestion could not be completed.")}
   end
 
   defp efficiency_state(%{efficiency_status: :no_passes}) do
@@ -150,5 +233,38 @@ defmodule Aludel.Web.PromptLive.Evolution do
 
   defp metric_options(suite) do
     [days: 30, suite_id: suite.id]
+  end
+
+  defp current_evolution_path(socket) do
+    base_path = "prompts/#{socket.assigns.prompt.id}/evolution"
+
+    case socket.assigns.selected_suite do
+      nil -> aludel_path(base_path)
+      suite -> aludel_path("#{base_path}?suite_id=#{suite.id}")
+    end
+  end
+
+  defp suggestion_error(:no_failures) do
+    "No failed evaluations are available for reflection."
+  end
+
+  defp suggestion_error(:already_resolved) do
+    "This suggestion has already been reviewed."
+  end
+
+  defp suggestion_error(:pending_suggestion_exists) do
+    "A pending suggestion already exists for this version, suite, and provider."
+  end
+
+  defp suggestion_error({:missing_variables, variables}) do
+    "The suggestion omitted required variables: #{Enum.join(variables, ", ")}"
+  end
+
+  defp suggestion_error(%Ecto.Changeset{}) do
+    "A pending suggestion already exists for this version, suite, and provider."
+  end
+
+  defp suggestion_error(_reason) do
+    "The prompt suggestion could not be completed."
   end
 end

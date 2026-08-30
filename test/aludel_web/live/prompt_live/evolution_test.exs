@@ -274,6 +274,62 @@ defmodule Aludel.Web.PromptLive.EvolutionTest do
       assert has_element?(view, "#pareto-version-2[data-pareto-status='frontier']")
       assert has_element?(view, "#pareto-version-1[data-pareto-status='dominated']")
     end
+
+    test "renders reflection controls and accepts a pending suggestion", %{conn: conn} do
+      prompt = prompt_fixture()
+      provider = provider_fixture(%{name: "Reflection Provider"})
+      {:ok, version} = Prompts.create_prompt_version(prompt, "Hello {{name}}")
+      suite = suite_fixture(%{prompt_id: prompt.id, name: "Reflection Suite"})
+
+      suggestion =
+        prompt_suggestion_fixture(%{
+          prompt_id: prompt.id,
+          source_version_id: version.id,
+          suite_id: suite.id,
+          provider_id: provider.id,
+          suggested_template: "Hello {{name}}. Be concise.",
+          rationale: "The failures were verbose and indirect."
+        })
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}/evolution")
+
+      assert has_element?(view, "#reflection-workflow")
+      assert has_element?(view, "#reflection-form")
+      assert has_element?(view, "#prompt-suggestion-#{suggestion.id}", "verbose and indirect")
+
+      view
+      |> element("#accept-suggestion-#{suggestion.id}")
+      |> render_click()
+
+      assert has_element?(view, "#prompt-suggestion-#{suggestion.id}[data-status='accepted']")
+      assert length(Prompts.get_prompt_with_versions!(prompt.id).versions) == 2
+    end
+
+    test "dismisses a pending reflection without creating a version", %{conn: conn} do
+      prompt = prompt_fixture()
+      provider = provider_fixture()
+      {:ok, version} = Prompts.create_prompt_version(prompt, "Hello {{name}}")
+      suite = suite_fixture(%{prompt_id: prompt.id})
+
+      suggestion =
+        prompt_suggestion_fixture(%{
+          prompt_id: prompt.id,
+          source_version_id: version.id,
+          suite_id: suite.id,
+          provider_id: provider.id,
+          suggested_template: "Hello {{name}}. Be concise.",
+          rationale: "Candidate revision"
+        })
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}/evolution")
+
+      view
+      |> element("#dismiss-suggestion-#{suggestion.id}")
+      |> render_click()
+
+      assert has_element?(view, "#prompt-suggestion-#{suggestion.id}[data-status='dismissed']")
+      assert length(Prompts.get_prompt_with_versions!(prompt.id).versions) == 1
+    end
   end
 
   describe "edge cases" do
