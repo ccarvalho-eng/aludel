@@ -587,6 +587,13 @@ defmodule Aludel.EvalsTest do
       assert length(suite_run.results) == 2
 
       assert Enum.all?(suite_run.results, &(&1["passed"] == true))
+
+      Enum.each(suite_run.results, fn result ->
+        assert result["artifacts"]["schema_version"] == 1
+        assert [%{"status" => "completed", "metrics" => metrics}] = result["artifacts"]["steps"]
+        assert metrics["score"] == 100.0
+        assert [%{"reason" => "Output contains expected value"}] = metrics["results"]
+      end)
     end
 
     test "executes suite with failing test cases" do
@@ -1209,6 +1216,20 @@ defmodule Aludel.EvalsTest do
 
       assert [%{"output" => output}] = suite_run.results
       assert output == "Failed to load document crash.png: boom"
+
+      assert [
+               %{
+                 "artifacts" => %{
+                   "schema_version" => 1,
+                   "steps" => [
+                     %{
+                       "status" => "failed",
+                       "error" => %{"type" => "document_storage_error"}
+                     }
+                   ]
+                 }
+               }
+             ] = suite_run.results
     end
 
     test "returns a failed test case result when document loading times out" do

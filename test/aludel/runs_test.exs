@@ -330,6 +330,8 @@ defmodule Aludel.RunsTest do
       assert result.input_tokens > 0
       assert result.output_tokens > 0
       assert result.latency_ms >= 0
+      assert result.artifacts["schema_version"] == 1
+      assert [%{"status" => "completed"}] = result.artifacts["steps"]
     end
 
     test "executes run with multiple providers concurrently", %{
@@ -437,6 +439,10 @@ defmodule Aludel.RunsTest do
       assert hd(execution.run.run_results).status == :error
       assert hd(execution.run.run_results).started_at
       assert hd(execution.run.run_results).completed_at
+      assert hd(execution.run.run_results).artifacts["schema_version"] == 1
+
+      assert [%{"status" => "failed", "error" => %{"type" => "network_error"}}] =
+               hd(execution.run.run_results).artifacts["steps"]
     end
 
     test "marks execution as partially failed when some providers fail", %{run: run} do

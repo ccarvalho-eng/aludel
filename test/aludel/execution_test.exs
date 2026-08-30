@@ -51,6 +51,88 @@ defmodule Aludel.ExecutionTest do
     assert result.metadata == nil
   end
 
+  test "captures a normalized native artifact without provider configuration" do
+    Application.put_env(:aludel, :execution_mode, :native)
+
+    prompt = prompt_fixture()
+    {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Return JSON for {{name}}")
+
+    provider =
+      provider_fixture(%{
+        provider: :openai,
+        model: "gpt-4o-mini",
+        config: %{"api_key" => "must-not-be-persisted"}
+      })
+
+    expect(HttpClientMock, :request, fn _model, "Return JSON for Alice", _opts ->
+      {:ok, %{content: ~s({"name":"Alice"}), input_tokens: 5, output_tokens: 7}}
+    end)
+
+    assert {:ok, result} =
+             Execution.execute_with_artifacts(%{
+               kind: :run,
+               prompt_version: version,
+               variables: %{"name" => "Alice"},
+               provider: provider,
+               documents: [],
+               metadata: %{run_id: Ecto.UUID.generate()}
+             })
+
+    assert result.artifacts["schema_version"] == 1
+    assert [step] = result.artifacts["steps"]
+    assert step["index"] == 0
+    assert step["mode"] == "native"
+    assert step["status"] == "completed"
+    assert step["input"]["rendered_prompt"] == "Return JSON for Alice"
+
+    assert step["input"]["provider"] == %{
+             "id" => provider.id,
+             "model" => "gpt-4o-mini",
+             "type" => "openai"
+           }
+
+    assert step["output"]["parsed"] == %{"name" => "Alice"}
+    assert step["output"]["raw"] == ~s({"name":"Alice"})
+    refute inspect(result.artifacts) =~ "must-not-be-persisted"
+    refute inspect(result.artifacts) =~ "config"
+  end
+
+  test "captures structured failure artifacts while preserving execute/1 compatibility" do
+    Application.put_env(:aludel, :execution_mode, :native)
+
+    prompt = prompt_fixture()
+    {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Hello {{name}}")
+    provider = provider_fixture()
+
+    expect(HttpClientMock, :request, 2, fn _model, _prompt, _opts ->
+      {:error, "API timeout"}
+    end)
+
+    request = %{
+      kind: :run,
+      prompt_version: version,
+      variables: %{"name" => "Alice"},
+      provider: provider,
+      documents: [],
+      metadata: %{run_id: Ecto.UUID.generate()}
+    }
+
+    assert {:error, {:network_error, "API timeout"}, artifacts} =
+             Execution.execute_with_artifacts(request)
+
+    assert %{
+             "schema_version" => 1,
+             "steps" => [
+               %{
+                 "error" => %{"type" => "network_error"},
+                 "status" => "failed"
+               }
+             ]
+           } = artifacts
+
+    assert {:error, {:network_error, "API timeout"}} = Execution.execute(request)
+  end
+
   test "returns a structured error when callback mode is missing an executor" do
     Application.put_env(:aludel, :execution_mode, :callback)
     Application.delete_env(:aludel, :executor)
@@ -218,5 +300,10 @@ defmodule Aludel.ExecutionTest do
     assert result.latency_ms == 1234
     assert result.cost_usd == nil
     assert result.metadata == %{"trace_id" => "trace-123"}
+    assert [%{"mode" => "callback", "input" => artifact_input}] = result.artifacts["steps"]
+    assert artifact_input["prompt_version"]["template"] == "Ignored {{name}}"
+    assert [%{"name" => "policy.txt", "size_bytes" => 27}] = artifact_input["documents"]
+    refute inspect(result.artifacts) =~ "reset password instructions"
+    refute inspect(result.artifacts) =~ "config"
   end
 end

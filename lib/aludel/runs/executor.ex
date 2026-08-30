@@ -8,6 +8,7 @@ defmodule Aludel.Runs.Executor do
   require Logger
 
   alias Aludel.Execution, as: AppExecution
+  alias Aludel.Execution.Artifact
   alias Aludel.Providers.Provider
   alias Aludel.PubSub
   alias Aludel.Runs.{Execution, Run, RunResult}
@@ -126,12 +127,38 @@ defmodule Aludel.Runs.Executor do
         {provider, outcome}
 
       {{provider, run_result}, {:exit, reason}} ->
-        {provider, create_error_result(run.id, run_result, provider, {:task_exit, reason})}
+        failure_reason = {:task_exit, reason}
+
+        artifacts =
+          run
+          |> execution_request(provider)
+          |> Artifact.start_unavailable(failure_reason)
+
+        {provider, create_error_result(run.id, run_result, provider, failure_reason, artifacts)}
     end)
   end
 
   defp execute_provider(run, run_result, provider) do
-    request = %{
+    request = execution_request(run, provider)
+
+    with {:ok, run_result} <- mark_run_result_running(run_result),
+         result <- AppExecution.execute_with_artifacts(request) do
+      case result do
+        {:ok, llm_result} ->
+          complete_run_result(run.id, run_result, provider, llm_result)
+
+        {:error, reason, artifacts} ->
+          create_error_result(run.id, run_result, provider, reason, artifacts)
+      end
+    else
+      {:error, changeset} ->
+        log_run_result_failure(run.id, provider.id, changeset)
+        {:error, provider_failure(provider, {:result_transition_failed, changeset.errors})}
+    end
+  end
+
+  defp execution_request(run, provider) do
+    %{
       kind: :run,
       prompt_version: run.prompt_version,
       variables: run.variable_values,
@@ -143,21 +170,6 @@ defmodule Aludel.Runs.Executor do
         prompt_version_id: run.prompt_version.id
       }
     }
-
-    with {:ok, run_result} <- mark_run_result_running(run_result),
-         result <- AppExecution.execute(request) do
-      case result do
-        {:ok, llm_result} ->
-          complete_run_result(run.id, run_result, provider, llm_result)
-
-        {:error, reason} ->
-          create_error_result(run.id, run_result, provider, reason)
-      end
-    else
-      {:error, changeset} ->
-        log_run_result_failure(run.id, provider.id, changeset)
-        {:error, provider_failure(provider, {:result_transition_failed, changeset.errors})}
-    end
   end
 
   defp complete_run_result(run_id, run_result, provider, result) do
@@ -168,6 +180,7 @@ defmodule Aludel.Runs.Executor do
            latency_ms: result.latency_ms,
            cost_usd: result.cost_usd,
            metadata: result.metadata,
+           artifacts: result.artifacts,
            status: :completed,
            completed_at: now(),
            error: nil
@@ -182,12 +195,13 @@ defmodule Aludel.Runs.Executor do
     end
   end
 
-  defp create_error_result(run_id, run_result, provider, reason) do
+  defp create_error_result(run_id, run_result, provider, reason, artifacts) do
     inspected_reason = inspect(reason)
 
     case persist_error_result(run_result, %{
            status: :error,
            error: inspected_reason,
+           artifacts: artifacts,
            completed_at: now()
          }) do
       {:ok, run_result} ->
