@@ -107,6 +107,7 @@ defmodule Aludel.Web.ExportController do
         latency_ms: result.latency_ms,
         cost_usd: result.cost_usd,
         metadata: result.metadata,
+        artifacts: result.artifacts,
         started_at: iso8601(result.started_at),
         completed_at: iso8601(result.completed_at),
         inserted_at: iso8601(result.inserted_at),
@@ -159,6 +160,7 @@ defmodule Aludel.Web.ExportController do
       latency_ms: result["latency_ms"],
       cost_usd: result["cost_usd"],
       metadata: result["metadata"],
+      artifacts: result["artifacts"],
       assertion_results: Map.get(result, "assertion_results", []),
       retry_count: result["retry_count"],
       retried_at: result["retried_at"]

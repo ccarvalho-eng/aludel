@@ -4,6 +4,7 @@ defmodule Aludel.Execution do
   """
 
   alias Aludel.Evals.TestCaseDocument
+  alias Aludel.Execution.Artifact
   alias Aludel.Executor
   alias Aludel.LLM
   alias Aludel.Prompts.PromptVersion
@@ -22,8 +23,35 @@ defmodule Aludel.Execution do
           metadata: map()
         }
 
-  @spec execute(request()) :: {:ok, Executor.result()} | {:error, term()}
+  @type result :: %{
+          output: String.t(),
+          input_tokens: non_neg_integer() | nil,
+          output_tokens: non_neg_integer() | nil,
+          latency_ms: non_neg_integer() | nil,
+          cost_usd: float() | nil,
+          metadata: map() | nil,
+          artifacts: map()
+        }
+
+  @spec execute(request()) :: {:ok, result()} | {:error, term()}
   def execute(
+        %{
+          kind: kind,
+          prompt_version: %PromptVersion{},
+          variables: variables,
+          provider: %Provider{}
+        } = request
+      )
+      when kind in [:run, :suite] and is_map(variables) do
+    case execute_with_artifacts(request) do
+      {:ok, result} -> {:ok, result}
+      {:error, reason, _artifacts} -> {:error, reason}
+    end
+  end
+
+  @spec execute_with_artifacts(request()) ::
+          {:ok, result()} | {:error, term(), map()}
+  def execute_with_artifacts(
         %{
           kind: kind,
           prompt_version: %PromptVersion{} = prompt_version,
@@ -39,23 +67,34 @@ defmodule Aludel.Execution do
          {:ok, execution_mode} <- Executor.configured_execution_mode() do
       case execution_mode do
         :callback ->
-          execute_callback(kind, prompt_version, variables, provider, loaded_documents, metadata)
+          execute_callback(
+            request,
+            kind,
+            prompt_version,
+            variables,
+            provider,
+            loaded_documents,
+            metadata
+          )
 
         _mode ->
-          execute_native(prompt_version, variables, provider, loaded_documents)
+          execute_native(request, prompt_version, variables, provider, loaded_documents)
       end
+    else
+      {:error, reason} -> {:error, reason, Artifact.start_unavailable(request, reason)}
     end
   end
 
-  defp execute_native(prompt_version, variables, provider, documents) do
+  defp execute_native(request, prompt_version, variables, provider, documents) do
     rendered_prompt = render_template(prompt_version.template, variables)
+    artifacts = Artifact.start_native(request, rendered_prompt, documents)
 
-    documents =
+    llm_documents =
       Enum.map(documents, fn document ->
         %{data: document.data, content_type: document.content_type}
       end)
 
-    opts = if documents == [], do: [], else: [documents: documents]
+    opts = if llm_documents == [], do: [], else: [documents: llm_documents]
 
     case LLM.call(provider, rendered_prompt, opts) do
       {:ok, result} ->
@@ -66,20 +105,34 @@ defmodule Aludel.Execution do
            output_tokens: result.output_tokens,
            latency_ms: result.latency_ms,
            cost_usd: result.cost_usd,
-           metadata: nil
+           metadata: nil,
+           artifacts: Artifact.complete(artifacts, result.output, nil)
          }}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, reason, Artifact.fail(artifacts, reason)}
     end
   end
 
-  defp execute_callback(kind, prompt_version, variables, provider, documents, metadata) do
-    with {:ok, executor} <- Executor.configured_executor() do
-      input = callback_input(kind, prompt_version, variables, provider, documents, metadata)
+  defp execute_callback(
+         request,
+         kind,
+         prompt_version,
+         variables,
+         provider,
+         documents,
+         metadata
+       ) do
+    input = callback_input(kind, prompt_version, variables, provider, documents, metadata)
+    artifacts = Artifact.start_callback(request, input)
 
-      safe_invoke_callback(executor, input)
-      |> normalize_callback_result()
+    with {:ok, executor} <- Executor.configured_executor(),
+         callback_result <- safe_invoke_callback(executor, input),
+         {:ok, result} <- normalize_callback_result(callback_result) do
+      {:ok,
+       Map.put(result, :artifacts, Artifact.complete(artifacts, result.output, result.metadata))}
+    else
+      {:error, reason} -> {:error, reason, Artifact.fail(artifacts, reason)}
     end
   end
 

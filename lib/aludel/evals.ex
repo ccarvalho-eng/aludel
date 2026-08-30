@@ -15,6 +15,7 @@ defmodule Aludel.Evals do
   }
 
   alias Aludel.Execution
+  alias Aludel.Execution.Artifact
   alias Aludel.Prompts.PromptVersion
   alias Aludel.Providers.Provider
   alias Aludel.Storage
@@ -486,14 +487,24 @@ defmodule Aludel.Evals do
       }
     }
 
-    case Execution.execute(request) do
+    case Execution.execute_with_artifacts(request) do
       {:ok, result} ->
         assertion_results = build_assertion_results(test_case.assertions, result.output)
         passed = Enum.all?(assertion_results, & &1["passed"])
-        successful_test_case_result(test_case.id, result, passed, assertion_results)
+        score = AssertionEvaluator.score_for_results(assertion_results)
+        artifacts = Artifact.put_metrics(result.artifacts, assertion_results, score)
 
-      {:error, reason} ->
-        failed_test_case_result(test_case.id, reason)
+        successful_test_case_result(
+          test_case.id,
+          result,
+          passed,
+          score,
+          assertion_results,
+          artifacts
+        )
+
+      {:error, reason, artifacts} ->
+        failed_test_case_result(test_case.id, reason, artifacts)
     end
   end
 
@@ -501,22 +512,30 @@ defmodule Aludel.Evals do
     Enum.map(assertions, &AssertionEvaluator.evaluate(output, &1))
   end
 
-  defp successful_test_case_result(test_case_id, result, passed, assertion_results) do
+  defp successful_test_case_result(
+         test_case_id,
+         result,
+         passed,
+         score,
+         assertion_results,
+         artifacts
+       ) do
     %{
       "test_case_id" => test_case_id,
       "passed" => passed,
-      "score" => AssertionEvaluator.score_for_results(assertion_results),
+      "score" => score,
       "output" => result.output,
       "assertion_results" => assertion_results,
       "input_tokens" => result.input_tokens,
       "output_tokens" => result.output_tokens,
       "cost_usd" => result.cost_usd,
       "latency_ms" => result.latency_ms,
-      "metadata" => result.metadata
+      "metadata" => result.metadata,
+      "artifacts" => artifacts
     }
   end
 
-  defp failed_test_case_result(test_case_id, reason) do
+  defp failed_test_case_result(test_case_id, reason, artifacts) do
     %{
       "test_case_id" => test_case_id,
       "passed" => false,
@@ -527,7 +546,8 @@ defmodule Aludel.Evals do
       "output_tokens" => nil,
       "cost_usd" => nil,
       "latency_ms" => nil,
-      "metadata" => nil
+      "metadata" => nil,
+      "artifacts" => artifacts
     }
   end
 

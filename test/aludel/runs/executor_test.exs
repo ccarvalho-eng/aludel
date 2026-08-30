@@ -165,6 +165,12 @@ defmodule Aludel.Runs.ExecutorTest do
       assert result.completed_at
       assert result.error =~ "task_exit"
       assert result.error =~ "boom"
+      assert result.artifacts["schema_version"] == 1
+
+      assert [%{"status" => "failed", "error" => %{"type" => "task_exit"}}] =
+               result.artifacts["steps"]
+
+      refute inspect(result.artifacts) =~ "config"
     end
 
     test "persists callback results with optional metrics and metadata", %{run: run} do

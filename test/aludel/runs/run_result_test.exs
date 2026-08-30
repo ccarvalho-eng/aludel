@@ -204,6 +204,38 @@ defmodule Aludel.Runs.RunResultTest do
       assert changeset.changes.metadata == metadata
     end
 
+    test "accepts versioned execution artifacts", %{run: run, provider: provider} do
+      artifacts = %{
+        "schema_version" => 1,
+        "steps" => [%{"index" => 0, "mode" => "native", "status" => "completed"}]
+      }
+
+      changeset =
+        RunResult.changeset(%RunResult{}, %{
+          run_id: run.id,
+          provider_id: provider.id,
+          output: "Hello world",
+          status: :completed,
+          artifacts: artifacts
+        })
+
+      assert changeset.valid?
+      assert changeset.changes.artifacts == artifacts
+    end
+
+    test "rejects artifacts that cannot be encoded as JSON", %{run: run, provider: provider} do
+      changeset =
+        RunResult.changeset(%RunResult{}, %{
+          run_id: run.id,
+          provider_id: provider.id,
+          status: :completed,
+          artifacts: %{"pid" => self()}
+        })
+
+      refute changeset.valid?
+      assert %{artifacts: ["must be JSON-encodable"]} = errors_on(changeset)
+    end
+
     test "rejects metadata that cannot be encoded as JSON", %{run: run, provider: provider} do
       changeset =
         RunResult.changeset(%RunResult{}, %{

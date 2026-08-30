@@ -21,7 +21,11 @@ defmodule Aludel.Web.ExportControllerTest do
           output_tokens: nil,
           latency_ms: nil,
           cost_usd: nil,
-          metadata: %{"trace_id" => "trace-123"}
+          metadata: %{"trace_id" => "trace-123"},
+          artifacts: %{
+            "schema_version" => 1,
+            "steps" => [%{"index" => 0, "mode" => "callback", "status" => "completed"}]
+          }
         })
 
       conn = get(conn, "/runs/results/#{result.id}/export")
@@ -47,6 +51,7 @@ defmodule Aludel.Web.ExportControllerTest do
       assert payload["result"]["status"] == "completed"
       assert payload["result"]["output"] == "Callback output"
       assert payload["result"]["metadata"]["trace_id"] == "trace-123"
+      assert payload["result"]["artifacts"]["schema_version"] == 1
     end
   end
 
@@ -110,6 +115,10 @@ defmodule Aludel.Web.ExportControllerTest do
               "cost_usd" => 0.001,
               "latency_ms" => 250,
               "metadata" => %{"trace_id" => "suite-export-trace"},
+              "artifacts" => %{
+                "schema_version" => 1,
+                "steps" => [%{"index" => 0, "mode" => "callback", "status" => "completed"}]
+              },
               "retry_count" => 1,
               "retried_at" => "2026-04-26T13:00:00Z"
             }
@@ -173,6 +182,12 @@ defmodule Aludel.Web.ExportControllerTest do
                      }
                    }
                  ],
+                 "artifacts" => %{
+                   "schema_version" => 1,
+                   "steps" => [
+                     %{"index" => 0, "mode" => "callback", "status" => "completed"}
+                   ]
+                 },
                  "cost_usd" => 0.001,
                  "error" => nil,
                  "input_tokens" => 14,
