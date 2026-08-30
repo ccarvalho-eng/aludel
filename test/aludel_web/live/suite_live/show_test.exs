@@ -99,7 +99,7 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
 
       assert has_element?(
                view,
-               "#dataset-entry-submit-wrapper.mb-2 > #populate-suite-from-dataset.h-10"
+               "#dataset-entry-submit-wrapper.mb-3 > #populate-suite-from-dataset.h-10"
              )
 
       assert Datasets.list_datasets() == [dataset]
