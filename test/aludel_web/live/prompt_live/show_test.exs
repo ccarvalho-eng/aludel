@@ -42,6 +42,16 @@ defmodule Aludel.Web.PromptLive.ShowTest do
       assert html =~ "v#{v3.version}"
     end
 
+    test "places version history to the right of prompt details on desktop", %{conn: conn} do
+      prompt = prompt_fixture(%{name: "Versioned Prompt"})
+      {:ok, _version} = Prompts.create_prompt_version(prompt, "Version template")
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}")
+
+      assert has_element?(view, "#prompt-details-content[class~='md:col-start-1']")
+      assert has_element?(view, "#prompt-version-history[class~='md:col-start-2']")
+    end
+
     test "displays version variables", %{conn: conn} do
       prompt = prompt_fixture(%{name: "Variable Test"})
 
