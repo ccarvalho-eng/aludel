@@ -478,6 +478,7 @@ defmodule Aludel.Evals do
       kind: :suite,
       prompt_version: version,
       variables: test_case.variable_values,
+      messages: test_case.messages,
       provider: provider,
       documents: test_case.documents,
       metadata: %{

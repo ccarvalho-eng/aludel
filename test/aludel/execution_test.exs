@@ -133,6 +133,20 @@ defmodule Aludel.ExecutionTest do
     assert {:error, {:network_error, "API timeout"}} = Execution.execute(request)
   end
 
+  test "rejects invalid messages at the execution boundary" do
+    prompt = prompt_fixture()
+    {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Hello")
+
+    assert {:error, {:invalid_messages, "contains an unsupported role"}} =
+             Execution.execute(%{
+               kind: :suite,
+               prompt_version: version,
+               variables: %{},
+               messages: [%{"role" => "tool", "content" => "unsafe"}],
+               provider: provider_fixture()
+             })
+  end
+
   test "returns a structured error when callback mode is missing an executor" do
     Application.put_env(:aludel, :execution_mode, :callback)
     Application.delete_env(:aludel, :executor)
@@ -305,5 +319,44 @@ defmodule Aludel.ExecutionTest do
     assert [%{"name" => "policy.txt", "size_bytes" => 27}] = artifact_input["documents"]
     refute inspect(result.artifacts) =~ "reset password instructions"
     refute inspect(result.artifacts) =~ "config"
+  end
+
+  test "renders and passes multi-turn messages to callback executors" do
+    Application.put_env(:aludel, :execution_mode, :callback)
+    Application.put_env(:aludel, :executor, Aludel.ExecutorMock)
+
+    prompt = prompt_fixture()
+    {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "System {{tone}}")
+    provider = provider_fixture()
+
+    expect(Aludel.ExecutorMock, :run, fn input ->
+      assert input.messages == [
+               %{"role" => "user", "content" => "Hello Alice"},
+               %{"role" => "assistant", "content" => "Hi Alice"},
+               %{"role" => "user", "content" => "Use a calm tone"}
+             ]
+
+      {:ok, %{output: "Certainly", metadata: %{}}}
+    end)
+
+    assert {:ok, result} =
+             Execution.execute(%{
+               kind: :suite,
+               prompt_version: version,
+               variables: %{"name" => "Alice", "tone" => "calm"},
+               messages: [
+                 %{"role" => "user", "content" => "Hello {{name}}"},
+                 %{"role" => "assistant", "content" => "Hi {{name}}"},
+                 %{"role" => "user", "content" => "Use a {{tone}} tone"}
+               ],
+               provider: provider,
+               documents: []
+             })
+
+    assert result.artifacts["steps"] |> hd() |> get_in(["input", "messages"]) == [
+             %{"role" => "user", "content" => "Hello Alice"},
+             %{"role" => "assistant", "content" => "Hi Alice"},
+             %{"role" => "user", "content" => "Use a calm tone"}
+           ]
   end
 end

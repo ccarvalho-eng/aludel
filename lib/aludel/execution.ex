@@ -3,6 +3,7 @@ defmodule Aludel.Execution do
   Shared execution boundary for native provider calls and host-app callbacks.
   """
 
+  alias Aludel.Evals.MessageValidator
   alias Aludel.Evals.TestCaseDocument
   alias Aludel.Execution.Artifact
   alias Aludel.Executor
@@ -15,12 +16,13 @@ defmodule Aludel.Execution do
   @default_document_load_timeout_ms 30_000
 
   @type request :: %{
+          optional(:documents) => [TestCaseDocument.t()],
+          optional(:messages) => [map()],
+          optional(:metadata) => map(),
           kind: :run | :suite,
           prompt_version: PromptVersion.t(),
           variables: map(),
-          provider: Provider.t(),
-          documents: [TestCaseDocument.t()],
-          metadata: map()
+          provider: Provider.t()
         }
 
   @type result :: %{
@@ -61,9 +63,13 @@ defmodule Aludel.Execution do
       )
       when kind in [:run, :suite] and is_map(variables) do
     documents = Map.get(request, :documents, [])
+    messages = Map.get(request, :messages, [])
     metadata = Map.get(request, :metadata, %{})
 
-    with {:ok, loaded_documents} <- load_documents(documents),
+    with :ok <- validate_messages(messages),
+         rendered_messages = render_messages(messages, variables),
+         request = Map.put(request, :messages, rendered_messages),
+         {:ok, loaded_documents} <- load_documents(documents),
          {:ok, execution_mode} <- Executor.configured_execution_mode() do
       case execution_mode do
         :callback ->
@@ -96,7 +102,9 @@ defmodule Aludel.Execution do
 
     opts = if llm_documents == [], do: [], else: [documents: llm_documents]
 
-    case LLM.call(provider, rendered_prompt, opts) do
+    prompt_input = native_prompt_input(rendered_prompt, Map.get(request, :messages, []))
+
+    case LLM.call(provider, prompt_input, opts) do
       {:ok, result} ->
         {:ok,
          %{
@@ -123,7 +131,17 @@ defmodule Aludel.Execution do
          documents,
          metadata
        ) do
-    input = callback_input(kind, prompt_version, variables, provider, documents, metadata)
+    input =
+      callback_input(
+        kind,
+        prompt_version,
+        variables,
+        Map.get(request, :messages, []),
+        provider,
+        documents,
+        metadata
+      )
+
     artifacts = Artifact.start_callback(request, input)
 
     with {:ok, executor} <- Executor.configured_executor(),
@@ -176,7 +194,15 @@ defmodule Aludel.Execution do
   defp normalize_callback_result({:error, reason}), do: {:error, reason}
   defp normalize_callback_result(other), do: {:error, {:invalid_executor_response, other}}
 
-  defp callback_input(kind, prompt_version, variables, provider, documents, metadata) do
+  defp callback_input(
+         kind,
+         prompt_version,
+         variables,
+         messages,
+         provider,
+         documents,
+         metadata
+       ) do
     %{
       kind: kind,
       prompt_version: %{
@@ -185,6 +211,7 @@ defmodule Aludel.Execution do
         version: prompt_version.version
       },
       variables: variables,
+      messages: messages,
       documents: documents,
       provider: %{
         id: provider.id,
@@ -271,6 +298,43 @@ defmodule Aludel.Execution do
     Enum.reduce(variables, template, fn {key, value}, acc ->
       String.replace(acc, "{{#{key}}}", to_string(value))
     end)
+  end
+
+  defp render_messages(messages, variables) do
+    Enum.map(messages, fn message ->
+      Map.update(message, "content", "", &render_template(&1, variables))
+    end)
+  end
+
+  defp native_prompt_input(rendered_prompt, []) do
+    rendered_prompt
+  end
+
+  defp native_prompt_input(rendered_prompt, messages) do
+    [%{role: :system, content: rendered_prompt} | Enum.map(messages, &native_message/1)]
+  end
+
+  defp native_message(%{"role" => role, "content" => content}) do
+    %{role: role_atom(role), content: content}
+  end
+
+  defp role_atom("system") do
+    :system
+  end
+
+  defp role_atom("assistant") do
+    :assistant
+  end
+
+  defp role_atom("user") do
+    :user
+  end
+
+  defp validate_messages(messages) do
+    case MessageValidator.validate(messages) do
+      :ok -> :ok
+      {:error, message} -> {:error, {:invalid_messages, message}}
+    end
   end
 
   defp document_load_timeout_ms do

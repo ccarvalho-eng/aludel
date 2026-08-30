@@ -25,7 +25,7 @@ defmodule Aludel.Interfaces.LLM.Behaviour do
 
   ## Parameters
     - model: Model identifier (e.g., "gpt-4o", "claude-3-5-sonnet")
-    - prompt: Text prompt to send to the model
+    - prompt: Text prompt or normalized conversation messages to send to the model
     - config: Provider configuration (API keys, temperature, etc.)
     - opts: Additional options (e.g., documents for vision models)
 
@@ -35,7 +35,7 @@ defmodule Aludel.Interfaces.LLM.Behaviour do
   """
   @callback generate(
               model :: String.t(),
-              prompt :: String.t(),
+              prompt :: String.t() | [map()],
               config :: map(),
               opts :: keyword()
             ) ::

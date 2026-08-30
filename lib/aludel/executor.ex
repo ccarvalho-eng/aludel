@@ -26,6 +26,7 @@ defmodule Aludel.Executor do
           kind: :run | :suite,
           prompt_version: prompt_version_input(),
           variables: map(),
+          messages: [map()],
           documents: [document_input()],
           provider: provider_input() | nil,
           metadata: map() | nil
