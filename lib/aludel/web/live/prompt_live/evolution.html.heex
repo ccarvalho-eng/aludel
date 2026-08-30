@@ -1,5 +1,5 @@
 <Layouts.app flash={@flash} current_path={@current_path}>
-  <div class="page-container-wide">
+  <div id="prompt-evolution" class="page-container-wide">
     <div style="margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--border);">
       <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
         <div style="flex: 1;">
@@ -91,7 +91,10 @@
     <% else %>
       <div class="aludel-card" style="margin-bottom: 24px;">
         <div style="padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Evolution Trends</h2>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Evolution Trends</h2>
+            <span id="evolution-window" class="tag">Last {@analysis_window} days</span>
+          </div>
           <button
             type="button"
             phx-click="toggle_view_mode"
@@ -181,6 +184,12 @@
                 <th style="padding: 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
                   Avg Latency
                 </th>
+                <th style="padding: 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+                  Cost / Pass
+                </th>
+                <th style="padding: 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+                  Latency / Pass
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -191,6 +200,12 @@
                 >
                   <td style="padding: 16px; font-weight: 600; color: var(--text-primary);">
                     v{metric.version_number}
+                    <div
+                      id={"evolution-stability-#{metric.version_number}"}
+                      style="margin-top: 4px; font-size: 11px; font-weight: 500; color: var(--text-secondary);"
+                    >
+                      {stability_label(metric.signals.stability)}
+                    </div>
                   </td>
                   <td style="padding: 16px; color: var(--text-secondary); font-size: 14px;">
                     {Calendar.strftime(metric.created_at, "%b %d, %Y")}
@@ -260,6 +275,20 @@
                       metric={:latency_ms}
                       delta={metric.deltas.latency_ms}
                     />
+                  </td>
+                  <td
+                    id={"evolution-cost-per-pass-#{metric.version_number}"}
+                    data-state={efficiency_state(metric)}
+                    style="padding: 16px; font-size: 14px; color: var(--text-secondary);"
+                  >
+                    {format_cost_per_pass(metric)}
+                  </td>
+                  <td
+                    id={"evolution-latency-per-pass-#{metric.version_number}"}
+                    data-state={efficiency_state(metric)}
+                    style="padding: 16px; font-size: 14px; color: var(--text-secondary);"
+                  >
+                    {format_latency_per_pass(metric)}
                   </td>
                 </tr>
               <% end %>
