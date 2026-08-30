@@ -227,6 +227,7 @@
   var global = globalSelf || phxWindow || globalThis;
   var DEFAULT_VSN = "2.0.0";
   var SOCKET_STATES = { connecting: 0, open: 1, closing: 2, closed: 3 };
+  var MAX_LONGPOLL_BATCH_SIZE = 100;
   var DEFAULT_TIMEOUT = 1e4;
   var WS_CLOSE_NORMAL = 1e3;
   var CHANNEL_STATES = {
@@ -341,6 +342,7 @@
       if (this.timeoutTimer) {
         this.cancelTimeout();
       }
+      this.cancelRefEvent();
       this.ref = this.channel.socket.makeRef();
       this.refEvent = this.channel.replyEventName(this.ref);
       this.channel.on(this.refEvent, (payload) => {
@@ -918,16 +920,22 @@
         }, 0);
       }
     }
-    batchSend(messages) {
+    batchSend(messages, offset = 0) {
       this.awaitingBatchAck = true;
-      this.ajax("POST", { "Content-Type": "application/x-ndjson" }, messages.join("\n"), () => this.onerror("timeout"), (resp) => {
-        this.awaitingBatchAck = false;
+      const next = offset + MAX_LONGPOLL_BATCH_SIZE;
+      const batch = messages.slice(offset, next);
+      this.ajax("POST", { "Content-Type": "application/x-ndjson" }, batch.join("\n"), () => this.ontimeout(), (resp) => {
         if (!resp || resp.status !== 200) {
+          this.awaitingBatchAck = false;
           this.onerror(resp && resp.status);
           this.closeAndRetry(1011, "internal server error", false);
+        } else if (next < messages.length) {
+          this.batchSend(messages, next);
         } else if (this.batchBuffer.length > 0) {
           this.batchSend(this.batchBuffer);
           this.batchBuffer = [];
+        } else {
+          this.awaitingBatchAck = false;
         }
       });
     }
@@ -938,6 +946,7 @@
       this.readyState = SOCKET_STATES.closed;
       let opts = Object.assign({ code: 1e3, reason: void 0, wasClean: true }, { code, reason, wasClean });
       this.batchBuffer = [];
+      this.awaitingBatchAck = false;
       clearTimeout(this.currentBatchTimer);
       this.currentBatchTimer = null;
       if (typeof CloseEvent !== "undefined") {
@@ -984,23 +993,42 @@
     // private
     binaryEncode(message) {
       let { join_ref, ref, event, topic, payload } = message;
-      let metaLength = this.META_LENGTH + join_ref.length + ref.length + topic.length + event.length;
+      let encoder = new TextEncoder();
+      let joinRefBytes = encoder.encode(join_ref);
+      let refBytes = encoder.encode(ref);
+      let topicBytes = encoder.encode(topic);
+      let eventBytes = encoder.encode(event);
+      this.assertFieldSize(joinRefBytes.byteLength, "join_ref");
+      this.assertFieldSize(refBytes.byteLength, "ref");
+      this.assertFieldSize(topicBytes.byteLength, "topic");
+      this.assertFieldSize(eventBytes.byteLength, "event");
+      let metaLength = this.META_LENGTH + joinRefBytes.byteLength + refBytes.byteLength + topicBytes.byteLength + eventBytes.byteLength;
       let header = new ArrayBuffer(this.HEADER_LENGTH + metaLength);
+      let headerBytes = new Uint8Array(header);
       let view = new DataView(header);
       let offset = 0;
       view.setUint8(offset++, this.KINDS.push);
-      view.setUint8(offset++, join_ref.length);
-      view.setUint8(offset++, ref.length);
-      view.setUint8(offset++, topic.length);
-      view.setUint8(offset++, event.length);
-      Array.from(join_ref, (char) => view.setUint8(offset++, char.charCodeAt(0)));
-      Array.from(ref, (char) => view.setUint8(offset++, char.charCodeAt(0)));
-      Array.from(topic, (char) => view.setUint8(offset++, char.charCodeAt(0)));
-      Array.from(event, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+      view.setUint8(offset++, joinRefBytes.byteLength);
+      view.setUint8(offset++, refBytes.byteLength);
+      view.setUint8(offset++, topicBytes.byteLength);
+      view.setUint8(offset++, eventBytes.byteLength);
+      headerBytes.set(joinRefBytes, offset);
+      offset += joinRefBytes.byteLength;
+      headerBytes.set(refBytes, offset);
+      offset += refBytes.byteLength;
+      headerBytes.set(topicBytes, offset);
+      offset += topicBytes.byteLength;
+      headerBytes.set(eventBytes, offset);
+      offset += eventBytes.byteLength;
       var combined = new Uint8Array(header.byteLength + payload.byteLength);
-      combined.set(new Uint8Array(header), 0);
+      combined.set(headerBytes, 0);
       combined.set(new Uint8Array(payload), header.byteLength);
       return combined.buffer;
+    },
+    assertFieldSize(size, name) {
+      if (size > 255) {
+        throw new Error(`unable to convert ${name} to binary: must be less than or equal to 255 bytes, but is ${size} bytes`);
+      }
     },
     binaryDecode(buffer) {
       let view = new DataView(buffer);
@@ -1148,7 +1176,7 @@
         }
         this.teardown(() => this.connect());
       }, this.reconnectAfterMs);
-      this.authToken = opts.authToken;
+      this.authToken = opts.authToken && closure(opts.authToken);
     }
     /**
      * Returns the LongPoll transport reference
@@ -1339,7 +1367,7 @@
       this.closeWasClean = false;
       let protocols = void 0;
       if (this.authToken) {
-        protocols = ["phoenix", `${AUTH_TOKEN_PREFIX}${btoa(this.authToken).replace(/=/g, "")}`];
+        protocols = ["phoenix", `${AUTH_TOKEN_PREFIX}${btoa(this.authToken()).replace(/=/g, "")}`];
       }
       this.conn = new this.transport(this.endPointURL(), protocols);
       this.conn.binaryType = this.binaryType;
@@ -1424,7 +1452,7 @@
         if (this.hasLogger()) {
           this.log("transport", "heartbeat timeout. Attempting to re-establish connection");
         }
-        this.triggerChanError();
+        this.triggerChanError("heartbeat_timeout");
         this.closeWasClean = false;
         this.teardown(() => this.reconnectTimer.scheduleTimeout(), WS_CLOSE_NORMAL, "heartbeat timeout");
       }
@@ -1487,7 +1515,7 @@
       };
       let closeCode = event && event.code;
       if (this.hasLogger()) this.log("transport", "close", event);
-      this.triggerChanError();
+      this.triggerChanError("connection_closed");
       this.clearHeartbeats();
       if (!this.closeWasClean && closeCode !== 1e3) {
         this.reconnectTimer.scheduleTimeout();
@@ -1498,23 +1526,23 @@
      * @private
      */
     onConnError(error) {
-      if (this.hasLogger()) this.log("transport", error);
+      if (this.hasLogger()) this.log("transport", "error", error);
       let transportBefore = this.transport;
       let establishedBefore = this.establishedConnections;
       this.stateChangeCallbacks.error.forEach(([, callback2]) => {
         callback2(error, transportBefore, establishedBefore);
       });
       if (transportBefore === this.transport || establishedBefore > 0) {
-        this.triggerChanError();
+        this.triggerChanError("connection_error");
       }
     }
     /**
      * @private
      */
-    triggerChanError() {
+    triggerChanError(reason) {
       this.channels.forEach((channel) => {
         if (!(channel.isErrored() || channel.isLeaving() || channel.isClosed())) {
-          channel.trigger(CHANNEL_EVENTS.error);
+          channel.trigger(CHANNEL_EVENTS.error, { source: "transport", reason });
         }
       });
     }
@@ -1675,6 +1703,7 @@
   var PHX_UPLOAD_REF = "data-phx-upload-ref";
   var PHX_PREFLIGHTED_REFS = "data-phx-preflighted-refs";
   var PHX_DONE_REFS = "data-phx-done-refs";
+  var PHX_ERROR_REFS = "data-phx-error-refs";
   var PHX_DROP_TARGET = "drop-target";
   var PHX_ACTIVE_ENTRY_REFS = "data-phx-active-refs";
   var PHX_LIVE_FILE_UPDATED = "phx:live-file:updated";
@@ -1723,6 +1752,7 @@
   var PHX_DEBOUNCE = "debounce";
   var PHX_THROTTLE = "throttle";
   var PHX_UPDATE = "update";
+  var PHX_PATCH_FOCUSED = "patch-focused";
   var PHX_STREAM = "stream";
   var PHX_STREAM_REF = "data-phx-stream";
   var PHX_PORTAL = "data-phx-portal";
@@ -1733,6 +1763,7 @@
   var PHX_KEY = "key";
   var PHX_PRIVATE = "phxPrivate";
   var PHX_AUTO_RECOVER = "auto-recover";
+  var PHX_NO_UNUSED_FIELD = "no-unused-field";
   var PHX_LV_DEBUG = "phx:live-socket:debug";
   var PHX_LV_PROFILE = "phx:live-socket:profiling";
   var PHX_LV_LATENCY_SIM = "phx:live-socket:latency-sim";
@@ -1759,11 +1790,14 @@
   var COMPONENTS = "c";
   var KEYED = "k";
   var KEYED_COUNT = "kc";
+  var KEYED_MOVED = "km";
   var EVENTS = "e";
   var REPLY = "r";
   var TITLE = "t";
   var TEMPLATES = "p";
   var STREAM = "stream";
+  var PHX_LV_DIAGNOSTIC_EVENT = "phx:live-view:diagnostic";
+  var PHX_LV_DIAGNOSTIC_VERSION = 1;
   var EntryUploader = class {
     constructor(entry, config, liveSocket2) {
       const { chunk_size, chunk_timeout } = config;
@@ -1782,14 +1816,18 @@
       if (this.errored) {
         return;
       }
+      this.entry.view.cancelSubmit(this.entry.fileEl.form);
       this.uploadChannel.leave();
       this.errored = true;
-      clearTimeout(this.chunkTimer);
+      this.chunkTimer != null && clearTimeout(this.chunkTimer);
+      if (reason === "writer_error") {
+        return;
+      }
       this.entry.error(reason);
     }
     upload() {
       this.uploadChannel.onError((reason) => this.error(reason));
-      this.uploadChannel.join().receive("ok", (_data) => this.readNextChunk()).receive("error", (reason) => this.error(reason));
+      this.uploadChannel.join().receive("ok", (_data) => this.readNextChunk()).receive("error", ({ reason }) => this.error(reason));
     }
     isDone() {
       return this.offset >= this.entry.file.size;
@@ -1801,7 +1839,7 @@
         this.chunkSize + this.offset
       );
       reader.onload = (e) => {
-        if (e.target.error === null) {
+        if (e.target?.error === null) {
           this.offset += /** @type {ArrayBuffer} */
           e.target.result.byteLength;
           this.pushChunk(
@@ -1809,7 +1847,11 @@
             e.target.result
           );
         } else {
-          return logError("Read error: " + e.target.error);
+          return this.entry.view.logError(
+            "upload.read-failed",
+            "Read error: " + e.target?.error,
+            { entry: this.entry, offset: this.offset }
+          );
         }
       };
       reader.readAsArrayBuffer(blob);
@@ -1829,35 +1871,80 @@
       }).receive("error", ({ reason }) => this.error(reason));
     }
   };
-  var logError = (msg, obj) => console.error && console.error(msg, obj);
+  var dispatchDiagnostic = (diagnostic) => {
+    window.dispatchEvent(
+      new CustomEvent(PHX_LV_DIAGNOSTIC_EVENT, {
+        detail: {
+          version: PHX_LV_DIAGNOSTIC_VERSION,
+          ...diagnostic
+        }
+      })
+    );
+  };
+  var logError = (code, message, metadata, context) => {
+    console.error && console.error(message, metadata);
+    dispatchDiagnostic({
+      level: "error",
+      code,
+      message,
+      metadata,
+      ...context
+    });
+  };
+  var ensureSameOrigin = (href, kind) => {
+    let url;
+    try {
+      url = new URL(href, window.location.href);
+    } catch {
+      throw new Error(
+        `expected ${kind} destination to be a valid URL, got: ${href}`
+      );
+    }
+    if (url.origin !== window.location.origin) {
+      throw new Error(
+        `cannot ${kind} to "${href}" because its origin does not match the current origin "${window.location.origin}". Use window.location directly for cross-origin navigation.`
+      );
+    }
+  };
   var isCid = (cid) => {
     const type = typeof cid;
     return type === "number" || type === "string" && /^(0|[1-9]\d*)$/.test(cid);
   };
-  function detectDuplicateIds() {
-    const ids = /* @__PURE__ */ new Set();
+  function detectDuplicateIds(reportError = logError) {
+    const ids = /* @__PURE__ */ new Map();
     const elems = document.querySelectorAll("*[id]");
     for (let i = 0, len = elems.length; i < len; i++) {
-      if (ids.has(elems[i].id)) {
-        console.error(
-          `Multiple IDs detected: ${elems[i].id}. Ensure unique element ids.`
+      const id = elems[i].id;
+      const existing = ids.get(id);
+      if (existing) {
+        reportError(
+          "dom.duplicate-id",
+          `Multiple IDs detected: ${id}. Ensure unique element ids.`,
+          { id, elements: [existing, elems[i]] },
+          { attribution: "app" }
         );
       } else {
-        ids.add(elems[i].id);
+        ids.set(id, elems[i]);
       }
     }
   }
-  function detectInvalidStreamInserts(inserts) {
-    const errors = /* @__PURE__ */ new Set();
+  function detectInvalidStreamInserts(inserts, reportError = logError) {
+    const invalidContainers = /* @__PURE__ */ new Set();
     Object.keys(inserts).forEach((id) => {
       const streamEl = document.getElementById(id);
       if (streamEl && streamEl.parentElement && streamEl.parentElement.getAttribute("phx-update") !== "stream") {
-        errors.add(
-          `The stream container with id "${streamEl.parentElement.id}" is missing the phx-update="stream" attribute. Ensure it is set for streams to work properly.`
-        );
+        invalidContainers.add(streamEl.parentElement);
       }
     });
-    errors.forEach((error) => console.error(error));
+    invalidContainers.forEach((container) => {
+      const id = container.id;
+      reportError(
+        "dom.invalid-stream-container",
+        `The stream container with id "${id}" is missing the phx-update="stream" attribute. Ensure it is set for streams to work properly.`,
+        { id, container },
+        { attribution: "app" }
+      );
+    });
   }
   var debug = (view, kind, msg, obj) => {
     if (view.liveSocket.isDebugEnabled()) {
@@ -1870,12 +1957,20 @@
   var clone = (obj) => {
     return JSON.parse(JSON.stringify(obj));
   };
-  var closestPhxBinding = (el, binding, borderEl) => {
+  var deepClone = (obj) => {
+    if ("structuredClone" in window) {
+      return structuredClone(obj);
+    } else {
+      return JSON.parse(JSON.stringify(obj));
+    }
+  };
+  var closestPhxBinding = (startEl, binding, borderEl) => {
+    let el = startEl;
     do {
-      if (el.matches(`[${binding}]`) && !el.disabled) {
+      if (el.matches(`[${binding}]`) && !("disabled" in el && el.disabled)) {
         return el;
       }
-      el = el.parentElement || el.parentNode;
+      el = el.parentElement;
     } while (el !== null && el.nodeType === 1 && !(borderEl && borderEl.isSameNode(el) || el.matches(PHX_VIEW_SELECTOR)));
     return null;
   };
@@ -1952,7 +2047,7 @@
             }
           });
         }
-      } else {
+      } else if (to2) {
         this.redirect(to2);
       }
     },
@@ -1969,7 +2064,7 @@
     deleteCookie(name) {
       document.cookie = `${name}=; max-age=-1; path=/`;
     },
-    redirect(toURL, flash, navigate = (url) => {
+    redirect(toURL, flash = null, navigate = (url) => {
       window.location.href = url;
     }) {
       if (flash) {
@@ -1991,7 +2086,22 @@
   var browser_default = Browser;
   var DOM = {
     byId(id) {
-      return document.getElementById(id) || logError(`no id found for ${id}`);
+      return document.getElementById(id) || logError(
+        "dom.element-not-found",
+        `no id found for ${id}`,
+        { id },
+        { attribution: "internal" }
+      );
+    },
+    elementFromTarget(target) {
+      if (!(target instanceof Node)) {
+        return null;
+      }
+      if (target.nodeType === Node.ELEMENT_NODE) {
+        return target;
+      } else {
+        return target.parentElement;
+      }
     },
     removeClass(el, className) {
       el.classList.remove(className);
@@ -2030,11 +2140,19 @@
         inputsOutsideForm
       );
     },
-    findComponentNodeList(viewId, cid, doc2 = document) {
-      return this.all(
-        doc2,
+    findComponent(viewId, cid, doc2 = document) {
+      return doc2.querySelector(
         `[${PHX_VIEW_REF}="${viewId}"][${PHX_COMPONENT}="${cid}"]`
       );
+    },
+    getComponent(viewId, cid, doc2 = document) {
+      const el = this.findComponent(viewId, cid, doc2);
+      if (!el) {
+        throw new Error(
+          `no component found matching viewId ${viewId} and cid ${cid}`
+        );
+      }
+      return el;
     },
     isPhxDestroyed(node) {
       return node.id && DOM.private(node, "destroyed") ? true : false;
@@ -2203,7 +2321,12 @@
           const trigger = () => throttle ? this.deletePrivate(el, THROTTLED) : callback2();
           const currentCycle = this.incCycle(el, DEBOUNCE_TRIGGER, trigger);
           if (isNaN(timeout)) {
-            return logError(`invalid throttle/debounce value: ${value}`);
+            return logError(
+              "dom.invalid-debounce",
+              `invalid throttle/debounce value: ${value}`,
+              { el, value },
+              { attribution: "app" }
+            );
           }
           if (throttle) {
             let newKeyDown = false;
@@ -2246,7 +2369,9 @@
           if (this.once(el, "bind-debounce")) {
             el.addEventListener("blur", () => {
               clearTimeout(this.private(el, THROTTLED));
-              this.triggerCycle(el, DEBOUNCE_TRIGGER);
+              if (asyncFilter()) {
+                this.triggerCycle(el, DEBOUNCE_TRIGGER);
+              }
             });
           }
       }
@@ -2290,10 +2415,15 @@
       if (el.isConnected) {
         el.setAttribute("data-phx-hook", "");
       } else {
-        console.error(`
+        logError(
+          "hook.non-connected-element",
+          `
         hook attached to non-connected DOM element
         ensure you are calling createHook within your connectedCallback. ${el.outerHTML}
-      `);
+      `,
+          { el },
+          { attribution: "app" }
+        );
       }
       this.putPrivate(el, "custom-el-hook", hook);
     },
@@ -2351,7 +2481,7 @@
         detail: opts.detail || {}
       };
       const event = name === "click" ? new MouseEvent("click", eventOpts) : new CustomEvent(name, eventOpts);
-      target.dispatchEvent(event);
+      return target.dispatchEvent(event);
     },
     cloneNode(node, html) {
       if (typeof html === "undefined") {
@@ -2427,11 +2557,23 @@
         focused.setSelectionRange(selectionStart, selectionEnd);
       }
     },
-    isFormInput(el) {
-      if (el.localName && customElements.get(el.localName)) {
-        return customElements.get(el.localName)[`formAssociated`];
+    /**
+     * Returns true if the element is an input that can be focused and edited by the user,
+     * so we can skip patching it if it has focus.
+     */
+    isEditableInput(el) {
+      return this.isFormAssociated(el) && !(el instanceof HTMLButtonElement) && !(el instanceof HTMLInputElement && el.type === "button");
+    },
+    isFormAssociated(el) {
+      if (!(el instanceof HTMLElement))
+        return false;
+      if (el.localName) {
+        const customEl = customElements.get(el.localName);
+        if (customEl) {
+          return customEl.formAssociated === true;
+        }
       }
-      return /^(?:input|select|textarea)$/i.test(el.tagName) && el.type !== "button";
+      return el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement;
     },
     syncAttrsToProps(el) {
       if (el instanceof HTMLInputElement && CHECKABLE_INPUTS.indexOf(el.type.toLocaleLowerCase()) >= 0) {
@@ -2444,19 +2586,22 @@
     isNowTriggerFormExternal(el, phxTriggerExternal) {
       return el.getAttribute && el.getAttribute(phxTriggerExternal) !== null && document.body.contains(el);
     },
-    cleanChildNodes(container, phxUpdate) {
+    cleanChildNodes(container, phxUpdate, reportError = logError) {
       if (DOM.isPhxUpdate(container, phxUpdate, ["append", "prepend", PHX_STREAM])) {
         const toRemove = [];
         container.childNodes.forEach((childNode) => {
-          if (!childNode.id) {
-            const isEmptyTextNode = childNode.nodeType === Node.TEXT_NODE && childNode.nodeValue.trim() === "";
+          if (!("id" in childNode) || !childNode.id) {
+            const isEmptyTextNode = childNode.nodeType === Node.TEXT_NODE && childNode.nodeValue && childNode.nodeValue.trim() === "";
             if (!isEmptyTextNode && childNode.nodeType !== Node.COMMENT_NODE) {
-              logError(
+              reportError(
+                "dom.invalid-phx-update-child",
                 `only HTML element tags with an id are allowed inside containers with phx-update.
 
-removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
+removing illegal node: "${("outerHTML" in childNode && childNode.outerHTML || childNode.nodeValue || "").trim()}"
 
-`
+`,
+                { container, childNode, phxUpdate },
+                { attribution: "app" }
               );
             }
             toRemove.push(childNode);
@@ -2482,9 +2627,12 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         Object.keys(attrs).forEach(
           (attr) => newContainer.setAttribute(attr, attrs[attr])
         );
-        retainedAttrs.forEach(
-          (attr) => newContainer.setAttribute(attr, container.getAttribute(attr))
-        );
+        retainedAttrs.forEach((attr) => {
+          const value = container.getAttribute(attr);
+          if (value !== null) {
+            newContainer.setAttribute(attr, value);
+          }
+        });
         newContainer.innerHTML = container.innerHTML;
         container.replaceWith(newContainer);
         return newContainer;
@@ -2539,9 +2687,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
   var dom_default = DOM;
   var UploadEntry = class {
     static isActive(fileEl, file) {
-      const isNew = file._phxRef === void 0;
+      const ref = file._phxRef;
+      const isNew = ref === void 0;
       const activeRefs = fileEl.getAttribute(PHX_ACTIVE_ENTRY_REFS).split(",");
-      const isActive = activeRefs.indexOf(LiveUploader.genFileRef(file)) >= 0;
+      const isActive = !isNew && activeRefs.indexOf(ref) >= 0;
       return file.size > 0 && (isNew || isActive);
     }
     static isPreflighted(fileEl, file) {
@@ -2565,6 +2714,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this._isDone = false;
       this._progress = 0;
       this._lastProgressSent = -1;
+      this._onCancel = function() {
+      };
       this._onDone = function() {
       };
       this._onElUpdated = this.onElUpdated.bind(this);
@@ -2598,7 +2749,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.file._preflightInProgress = false;
       this._isCancelled = true;
       this._isDone = true;
-      this._onDone();
+      try {
+        this._onCancel();
+      } finally {
+        this._onDone();
+      }
     }
     isDone() {
       return this._isDone;
@@ -2612,6 +2767,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     isAutoUpload() {
       return this.autoUpload;
+    }
+    onCancel(callback2) {
+      if (this.isCancelled()) {
+        callback2();
+      } else {
+        this._onCancel = callback2;
+      }
     }
     //private
     onDone(callback2) {
@@ -2640,7 +2802,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     uploader(uploaders) {
       if (this.meta.uploader) {
-        const callback2 = uploaders[this.meta.uploader] || logError(`no uploader configured for ${this.meta.uploader}`);
+        const callback2 = uploaders[this.meta.uploader] || this.view.logError(
+          "upload.missing-uploader",
+          `no uploader configured for ${this.meta.uploader}`,
+          { uploader: this.meta.uploader, uploaders }
+        );
         return { name: this.meta.uploader, callback: callback2 };
       } else {
         return { name: "channel", callback: channelUploader };
@@ -2649,10 +2815,16 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     zipPostFlight(resp) {
       this.meta = resp.entries[this.ref];
       if (!this.meta) {
-        logError(`no preflight upload response returned with ref ${this.ref}`, {
-          input: this.fileEl,
-          response: resp
-        });
+        this.view.logError(
+          "upload.missing-preflight-response",
+          `no preflight upload response returned with ref ${this.ref}`,
+          {
+            ref: this.ref,
+            input: this.fileEl,
+            response: resp
+          },
+          { attribution: "internal" }
+        );
       }
     }
   };
@@ -2667,11 +2839,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         return file._phxRef;
       }
     }
-    static getEntryDataURL(inputEl, ref, callback2) {
+    static getEntryDataURL(inputEl, ref) {
       const file = this.activeFiles(inputEl).find(
         (file2) => this.genFileRef(file2) === ref
       );
-      callback2(URL.createObjectURL(file));
+      if (!file)
+        return null;
+      return URL.createObjectURL(file);
     }
     static hasUploadsInProgress(formEl) {
       let active = 0;
@@ -2681,6 +2855,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       });
       return active > 0;
+    }
+    static hasUploadErrors(formEl) {
+      return dom_default.findUploadInputs(formEl).some(
+        (input) => (input.getAttribute(PHX_ERROR_REFS) || "") !== ""
+      );
     }
     static serializeUploads(inputEl) {
       const files = this.activeFiles(inputEl);
@@ -2730,7 +2909,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           [],
           (existing) => existing.concat(newFiles)
         );
-        inputEl.value = null;
+        inputEl.value = "";
       } else {
         if (dataTransfer && dataTransfer.files.length > 0) {
           inputEl.files = dataTransfer.files;
@@ -2779,6 +2958,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     entries() {
       return this._entries;
     }
+    cancel() {
+      this._entries.filter((entry) => !entry.isDone()).forEach((entry) => entry.cancel());
+    }
     initAdapterUpload(resp, onError, liveSocket2) {
       this._entries = this._entries.map((entry) => {
         if (entry.isCancelled()) {
@@ -2814,17 +2996,17 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
   };
   var ARIA = {
     anyOf(instance, classes) {
-      return classes.find((name) => instance instanceof name);
+      return classes.some((name) => instance instanceof name);
     },
-    isFocusable(el, interactiveOnly) {
-      return el instanceof HTMLAnchorElement && el.rel !== "ignore" || el instanceof HTMLAreaElement && el.href !== void 0 || !el.disabled && this.anyOf(el, [
+    isFocusable(el, interactiveOnly = false) {
+      return el instanceof HTMLAnchorElement && el.rel !== "ignore" || el instanceof HTMLAreaElement && el.href !== void 0 || !("disabled" in el && el.disabled) && this.anyOf(el, [
         HTMLInputElement,
         HTMLSelectElement,
         HTMLTextAreaElement,
         HTMLButtonElement
-      ]) || el instanceof HTMLIFrameElement || el.tabIndex >= 0 && el.getAttribute("aria-hidden") !== "true" || !interactiveOnly && el.getAttribute("tabindex") !== null && el.getAttribute("aria-hidden") !== "true";
+      ]) || el instanceof HTMLIFrameElement || el instanceof HTMLElement && el.tabIndex >= 0 && el.getAttribute("aria-hidden") !== "true" || !interactiveOnly && el.getAttribute("tabindex") !== null && el.getAttribute("aria-hidden") !== "true";
     },
-    attemptFocus(el, interactiveOnly) {
+    attemptFocus(el, interactiveOnly = false) {
       if (this.isFocusable(el, interactiveOnly)) {
         try {
           el.focus();
@@ -2841,6 +3023,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
         child = child.nextElementSibling;
       }
+      return false;
     },
     focusFirst(el) {
       let child = el.firstElementChild;
@@ -2850,6 +3033,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
         child = child.nextElementSibling;
       }
+      return false;
     },
     focusLast(el) {
       let child = el.lastElementChild;
@@ -2859,79 +3043,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
         child = child.previousElementSibling;
       }
+      return false;
     }
   };
   var aria_default = ARIA;
-  var Hooks = {
-    LiveFileUpload: {
-      activeRefs() {
-        return this.el.getAttribute(PHX_ACTIVE_ENTRY_REFS);
-      },
-      preflightedRefs() {
-        return this.el.getAttribute(PHX_PREFLIGHTED_REFS);
-      },
-      mounted() {
-        this.js().ignoreAttributes(this.el, ["value"]);
-        this.preflightedWas = this.preflightedRefs();
-      },
-      updated() {
-        const newPreflights = this.preflightedRefs();
-        if (this.preflightedWas !== newPreflights) {
-          this.preflightedWas = newPreflights;
-          if (newPreflights === "") {
-            this.__view().cancelSubmit(this.el.form);
-          }
-        }
-        if (this.activeRefs() === "") {
-          this.el.value = null;
-        }
-        this.el.dispatchEvent(new CustomEvent(PHX_LIVE_FILE_UPDATED));
-      }
-    },
-    LiveImgPreview: {
-      mounted() {
-        this.ref = this.el.getAttribute("data-phx-entry-ref");
-        this.inputEl = document.getElementById(
-          this.el.getAttribute(PHX_UPLOAD_REF)
-        );
-        LiveUploader.getEntryDataURL(this.inputEl, this.ref, (url) => {
-          this.url = url;
-          this.el.src = url;
-        });
-      },
-      destroyed() {
-        URL.revokeObjectURL(this.url);
-      }
-    },
-    FocusWrap: {
-      mounted() {
-        this.focusStart = this.el.firstElementChild;
-        this.focusEnd = this.el.lastElementChild;
-        this.focusStart.addEventListener("focus", (e) => {
-          if (!e.relatedTarget || !this.el.contains(e.relatedTarget)) {
-            const nextFocus = e.target.nextElementSibling;
-            aria_default.attemptFocus(nextFocus) || aria_default.focusFirst(nextFocus);
-          } else {
-            aria_default.focusLast(this.el);
-          }
-        });
-        this.focusEnd.addEventListener("focus", (e) => {
-          if (!e.relatedTarget || !this.el.contains(e.relatedTarget)) {
-            const nextFocus = e.target.previousElementSibling;
-            aria_default.attemptFocus(nextFocus) || aria_default.focusLast(nextFocus);
-          } else {
-            aria_default.focusFirst(this.el);
-          }
-        });
-        if (!this.el.contains(document.activeElement)) {
-          this.el.addEventListener("phx:show-end", () => this.el.focus());
-          if (window.getComputedStyle(this.el).display !== "none") {
-            aria_default.focusFirst(this.el);
-          }
-        }
-      }
-    }
-  };
   var findScrollContainer = (el) => {
     if (["HTML", "BODY"].indexOf(el.nodeName.toUpperCase()) >= 0)
       return null;
@@ -2962,17 +3077,17 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
   };
   var isAtViewportTop = (el, scrollContainer) => {
     const rect = el.getBoundingClientRect();
-    return Math.ceil(rect.top) >= top(scrollContainer) && Math.ceil(rect.left) >= 0 && Math.floor(rect.top) <= bottom(scrollContainer);
+    return Math.ceil(rect.top) >= top(scrollContainer) && Math.floor(rect.top) <= bottom(scrollContainer);
   };
   var isAtViewportBottom = (el, scrollContainer) => {
     const rect = el.getBoundingClientRect();
-    return Math.ceil(rect.bottom) >= top(scrollContainer) && Math.ceil(rect.left) >= 0 && Math.floor(rect.bottom) <= bottom(scrollContainer);
+    return Math.ceil(rect.bottom) >= top(scrollContainer) && Math.floor(rect.bottom) <= bottom(scrollContainer);
   };
   var isWithinViewport = (el, scrollContainer) => {
     const rect = el.getBoundingClientRect();
-    return Math.ceil(rect.top) >= top(scrollContainer) && Math.ceil(rect.left) >= 0 && Math.floor(rect.top) <= bottom(scrollContainer);
+    return Math.ceil(rect.top) >= top(scrollContainer) && Math.floor(rect.top) <= bottom(scrollContainer);
   };
-  Hooks.InfiniteScroll = {
+  var InfiniteScroll = {
     mounted() {
       this.scrollContainer = findScrollContainer(this.el);
       let scrollBefore = scrollTop(this.scrollContainer);
@@ -3025,6 +3140,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           });
         }
       );
+      this.throttles = [onTopOverrun, onFirstChildAtTop, onLastChildAtBottom];
       this.onScroll = (_e) => {
         const scrollNow = scrollTop(this.scrollContainer);
         if (pendingOp) {
@@ -3048,9 +3164,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         } else if (isScrollingDown && topOverran && rect.top <= 0) {
           topOverran = false;
         }
-        if (topEvent && isScrollingUp && isAtViewportTop(firstChild, this.scrollContainer)) {
+        if (topEvent && isScrollingUp && firstChild && isAtViewportTop(firstChild, this.scrollContainer)) {
           onFirstChildAtTop(topEvent, firstChild);
-        } else if (bottomEvent && isScrollingDown && isAtViewportBottom(lastChild, this.scrollContainer)) {
+        } else if (bottomEvent && isScrollingDown && lastChild && isAtViewportBottom(lastChild, this.scrollContainer)) {
           onLastChildAtBottom(bottomEvent, lastChild);
         }
         scrollBefore = scrollNow;
@@ -3061,7 +3177,15 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         window.addEventListener("scroll", this.onScroll);
       }
     },
+    updated() {
+      if (this.scrollContainer && !this.scrollContainer.isConnected) {
+        this.destroyed();
+        this.mounted();
+      }
+    },
     destroyed() {
+      this.throttles?.forEach((throttled2) => throttled2.cancel());
+      this.throttles = null;
       if (this.scrollContainer) {
         this.scrollContainer.removeEventListener("scroll", this.onScroll);
       } else {
@@ -3070,18 +3194,18 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     },
     throttle(interval, callback2) {
       let lastCallAt = 0;
-      let timer;
-      return (...args) => {
+      let timer = null;
+      const throttled2 = (...args) => {
         const now = Date.now();
         const remainingTime = interval - (now - lastCallAt);
         if (remainingTime <= 0 || remainingTime > interval) {
-          if (timer) {
+          if (timer !== null) {
             clearTimeout(timer);
             timer = null;
           }
           lastCallAt = now;
           callback2(...args);
-        } else if (!timer) {
+        } else if (timer === null) {
           timer = setTimeout(() => {
             lastCallAt = Date.now();
             timer = null;
@@ -3089,6 +3213,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           }, remainingTime);
         }
       };
+      throttled2.cancel = () => {
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+      return throttled2;
     },
     findOverrunTarget() {
       let rect;
@@ -3107,6 +3238,99 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       return rect;
     }
+  };
+  var LiveFileUpload = {
+    activeRefs() {
+      return this.el.getAttribute(PHX_ACTIVE_ENTRY_REFS);
+    },
+    preflightedRefs() {
+      return this.el.getAttribute(PHX_PREFLIGHTED_REFS);
+    },
+    errorRefs() {
+      return this.el.getAttribute(PHX_ERROR_REFS) || "";
+    },
+    hasSelectedFiles() {
+      return (this.el.files?.length || 0) > 0 || LiveUploader.activeFiles(this.el).length > 0 || this.activeRefs() !== "" || this.errorRefs() !== "";
+    },
+    maybeRemoveRequired() {
+      if (this.hasSelectedFiles()) {
+        this.el.removeAttribute("required");
+      }
+    },
+    mounted() {
+      this.js().ignoreAttributes(this.el, ["value"]);
+      this.preflightedWas = this.preflightedRefs();
+      this.errorRefsWas = this.errorRefs();
+      this.el.addEventListener("input", () => this.maybeRemoveRequired());
+      this.maybeRemoveRequired();
+    },
+    updated() {
+      const newPreflights = this.preflightedRefs();
+      const newErrorRefs = this.errorRefs();
+      if (this.errorRefsWas !== newErrorRefs) {
+        this.errorRefsWas = newErrorRefs;
+        if (newErrorRefs !== "") {
+          this.__view().cancelSubmit(this.el.form);
+        }
+      }
+      if (this.preflightedWas !== newPreflights) {
+        this.preflightedWas = newPreflights;
+        if (newPreflights === "") {
+          this.__view().cancelSubmit(this.el.form);
+        }
+      }
+      if (this.activeRefs() === "") {
+        this.el.value = "";
+      }
+      this.maybeRemoveRequired();
+      this.el.dispatchEvent(new CustomEvent(PHX_LIVE_FILE_UPDATED));
+    }
+  };
+  var LiveImgPreview = {
+    mounted() {
+      this.ref = this.el.getAttribute("data-phx-entry-ref");
+      this.inputEl = document.getElementById(
+        this.el.getAttribute(PHX_UPLOAD_REF)
+      );
+      this.url = LiveUploader.getEntryDataURL(this.inputEl, this.ref);
+      this.el.src = this.url;
+    },
+    destroyed() {
+      URL.revokeObjectURL(this.url);
+    }
+  };
+  var Hooks = {
+    LiveFileUpload,
+    LiveImgPreview,
+    FocusWrap: {
+      mounted() {
+        this.focusStart = this.el.firstElementChild;
+        this.focusEnd = this.el.lastElementChild;
+        this.focusStart.addEventListener("focus", (e) => {
+          if (!e.relatedTarget || !this.el.contains(e.relatedTarget)) {
+            const nextFocus = e.target.nextElementSibling;
+            aria_default.attemptFocus(nextFocus) || aria_default.focusFirst(nextFocus);
+          } else {
+            aria_default.focusLast(this.el);
+          }
+        });
+        this.focusEnd.addEventListener("focus", (e) => {
+          if (!e.relatedTarget || !this.el.contains(e.relatedTarget)) {
+            const nextFocus = e.target.previousElementSibling;
+            aria_default.attemptFocus(nextFocus) || aria_default.focusLast(nextFocus);
+          } else {
+            aria_default.focusFirst(this.el);
+          }
+        });
+        if (!this.el.contains(document.activeElement)) {
+          this.el.addEventListener("phx:show-end", () => this.el.focus());
+          if (window.getComputedStyle(this.el).display !== "none") {
+            aria_default.focusFirst(this.el);
+          }
+        }
+      }
+    },
+    InfiniteScroll
   };
   var hooks_default = Hooks;
   var ElementRef = class {
@@ -3204,11 +3428,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         this.el.removeAttribute(PHX_REF_LOADING);
         const disabledVal = this.el.getAttribute(PHX_DISABLED);
         const readOnlyVal = this.el.getAttribute(PHX_READONLY);
-        if (readOnlyVal !== null) {
+        if (readOnlyVal !== null && "readOnly" in this.el) {
           this.el.readOnly = readOnlyVal === "true" ? true : false;
           this.el.removeAttribute(PHX_READONLY);
         }
-        if (disabledVal !== null) {
+        if (disabledVal !== null && "disabled" in this.el) {
           this.el.disabled = disabledVal === "true" ? true : false;
           this.el.removeAttribute(PHX_DISABLED);
         }
@@ -3235,6 +3459,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     isLoadingUndoneBy(ref) {
       return this.loadingRef === null ? false : this.loadingRef <= ref;
     }
+    /** @internal */
     isLockUndoneBy(ref) {
       return this.lockRef === null ? false : this.lockRef <= ref;
     }
@@ -3436,7 +3661,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
   }
-  var specialElHandlers = {
+  var specialElHandlers_default = {
     OPTION: function(fromEl, toEl) {
       var parentNode = fromEl.parentNode;
       if (parentNode) {
@@ -3521,7 +3746,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
   };
   var ELEMENT_NODE = 1;
-  var DOCUMENT_FRAGMENT_NODE$1 = 11;
+  var DOCUMENT_FRAGMENT_NODE2 = 11;
   var TEXT_NODE = 3;
   var COMMENT_NODE = 8;
   function noop() {
@@ -3552,7 +3777,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         } else {
           toNode = toElement(toNode);
         }
-      } else if (toNode.nodeType === DOCUMENT_FRAGMENT_NODE$1) {
+      } else if (toNode.nodeType === DOCUMENT_FRAGMENT_NODE2) {
         toNode = toNode.firstElementChild;
       }
       var getNodeKey = options.getNodeKey || defaultGetNodeKey;
@@ -3568,6 +3793,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         return parent.appendChild(child);
       };
       var childrenOnly = options.childrenOnly === true;
+      var keyedRoot = options.keyedRoot === true;
       var fromNodesLookup = /* @__PURE__ */ Object.create(null);
       var keyedRemovalList = [];
       function addKeyedRemoval(key) {
@@ -3601,7 +3827,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         walkDiscardedChildNodes(node, skipKeyedNodes);
       }
       function indexTree(node) {
-        if (node.nodeType === ELEMENT_NODE || node.nodeType === DOCUMENT_FRAGMENT_NODE$1) {
+        if (node.nodeType === ELEMENT_NODE || node.nodeType === DOCUMENT_FRAGMENT_NODE2) {
           var curChild = node.firstChild;
           while (curChild) {
             var key = getNodeKey(curChild);
@@ -3672,7 +3898,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         if (fromEl.nodeName !== "TEXTAREA") {
           morphChildren(fromEl, toEl);
         } else {
-          specialElHandlers.TEXTAREA(fromEl, toEl);
+          specialElHandlers_default.TEXTAREA(fromEl, toEl);
         }
       }
       function morphChildren(fromEl, toEl) {
@@ -3777,9 +4003,34 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             curFromNodeChild = fromNextSibling;
           }
         cleanupFromEl(fromEl, curFromNodeChild, curFromNodeKey);
-        var specialElHandler = specialElHandlers[fromEl.nodeName];
+        var specialElHandler = specialElHandlers_default[fromEl.nodeName];
         if (specialElHandler) {
           specialElHandler(fromEl, toEl);
+        }
+      }
+      function cleanupKeyedNodes() {
+        for (var i = 0, len = keyedRemovalList.length; i < len; i++) {
+          var elToRemove = fromNodesLookup[keyedRemovalList[i]];
+          if (elToRemove) {
+            removeNode(elToRemove, elToRemove.parentNode, false);
+          }
+        }
+      }
+      if (keyedRoot && !childrenOnly) {
+        var fromNodeKey = getNodeKey(fromNode);
+        var toNodeKey = getNodeKey(toNode);
+        if ((fromNodeKey || toNodeKey) && fromNodeKey !== toNodeKey) {
+          if (toNode.actualize) {
+            toNode = toNode.actualize(fromNode.ownerDocument || doc);
+          }
+          onNodeDiscarded(fromNode);
+          if (fromNode.parentNode) {
+            fromNode.parentNode.replaceChild(toNode, fromNode);
+          }
+          handleNodeAdded(toNode);
+          walkDiscardedChildNodes(fromNode, false);
+          cleanupKeyedNodes();
+          return toNode;
         }
       }
       var morphedNode = fromNode;
@@ -3813,14 +4064,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           return;
         }
         morphEl(morphedNode, toNode, childrenOnly);
-        if (keyedRemovalList) {
-          for (var i = 0, len = keyedRemovalList.length; i < len; i++) {
-            var elToRemove = fromNodesLookup[keyedRemovalList[i]];
-            if (elToRemove) {
-              removeNode(elToRemove, elToRemove.parentNode, false);
-            }
-          }
-        }
+        cleanupKeyedNodes();
       }
       if (!childrenOnly && morphedNode !== fromNode && fromNode.parentNode) {
         if (morphedNode.actualize) {
@@ -3832,47 +4076,47 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     };
   }
   var morphdom = morphdomFactory(morphAttrs);
-  var morphdom_esm_default = morphdom;
+  var index_default = morphdom;
   var DOMPatch = class {
-    constructor(view, container, id, html, streams, targetCID, opts = {}) {
+    constructor(view, container, html, streams, targetCID, opts = {}) {
       this.view = view;
       this.liveSocket = view.liveSocket;
       this.container = container;
-      this.id = id;
       this.rootID = view.root.id;
       this.html = html;
       this.streams = streams;
       this.streamInserts = {};
       this.streamComponentRestore = {};
       this.targetCID = targetCID;
-      this.cidPatch = isCid(this.targetCID);
       this.pendingRemoves = [];
       this.phxRemove = this.liveSocket.binding("remove");
-      this.targetContainer = this.isCIDPatch() ? this.targetCIDContainer(html) : container;
-      this.callbacks = {
-        beforeadded: [],
-        beforeupdated: [],
-        beforephxChildAdded: [],
-        afteradded: [],
-        afterupdated: [],
-        afterdiscarded: [],
-        afterphxChildAdded: [],
-        aftertransitionsDiscarded: []
-      };
-      this.withChildren = opts.withChildren || opts.undoRef || false;
-      this.undoRef = opts.undoRef;
+      this.targetContainer = targetCID ? dom_default.getComponent(this.view.id, targetCID) : container;
+      this.beforeUpdatedCallbacks = [];
+      this.afterAddedCallbacks = [];
+      this.afterUpdatedCallbacks = [];
+      this.afterPhxChildAddedCallbacks = [];
+      this.afterDiscardedCallbacks = [];
+      this.afterTransitionsDiscardedCallbacks = [];
+      this.withChildren = opts.withChildren || opts.undoRef !== void 0 || false;
+      this.undoRef = opts.undoRef ?? null;
     }
-    before(kind, callback2) {
-      this.callbacks[`before${kind}`].push(callback2);
+    beforeUpdated(callback2) {
+      this.beforeUpdatedCallbacks.push(callback2);
     }
-    after(kind, callback2) {
-      this.callbacks[`after${kind}`].push(callback2);
+    afterAdded(callback2) {
+      this.afterAddedCallbacks.push(callback2);
     }
-    trackBefore(kind, ...args) {
-      this.callbacks[`before${kind}`].forEach((callback2) => callback2(...args));
+    afterUpdated(callback2) {
+      this.afterUpdatedCallbacks.push(callback2);
     }
-    trackAfter(kind, ...args) {
-      this.callbacks[`after${kind}`].forEach((callback2) => callback2(...args));
+    afterPhxChildAdded(callback2) {
+      this.afterPhxChildAddedCallbacks.push(callback2);
+    }
+    afterDiscarded(callback2) {
+      this.afterDiscardedCallbacks.push(callback2);
+    }
+    afterTransitionsDiscarded(callback2) {
+      this.afterTransitionsDiscardedCallbacks.push(callback2);
     }
     markPrunableContentForRemoval() {
       const phxUpdate = this.liveSocket.binding(PHX_UPDATE);
@@ -3886,11 +4130,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     perform(isJoinPatch) {
       const { view, liveSocket: liveSocket2, html, container } = this;
+      const reportError = (code, message, metadata, context) => view.logError(code, message, metadata, context);
       let targetContainer = this.targetContainer;
-      if (this.isCIDPatch() && !this.targetContainer) {
-        return;
-      }
-      if (this.isCIDPatch()) {
+      if (this.targetCID) {
         const closestLock = targetContainer.closest(`[${PHX_REF_LOCK}]`);
         if (closestLock && !closestLock.isSameNode(targetContainer)) {
           const clonedTree = dom_default.private(closestLock, PHX_REF_LOCK);
@@ -3898,6 +4140,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             targetContainer = clonedTree.querySelector(
               `[data-phx-component="${this.targetCID}"]`
             );
+            if (!targetContainer)
+              return;
           }
         }
       }
@@ -3907,6 +4151,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       const phxViewportTop = liveSocket2.binding(PHX_VIEWPORT_TOP);
       const phxViewportBottom = liveSocket2.binding(PHX_VIEWPORT_BOTTOM);
       const phxTriggerExternal = liveSocket2.binding(PHX_TRIGGER_ACTION);
+      const phxPatchFocused = liveSocket2.binding(PHX_PATCH_FOCUSED);
       const added = [];
       const updates = [];
       const appendPrependUpdates = [];
@@ -3919,14 +4164,20 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           // when we are patching a live component, we do want to patch the root element as well;
           // another case is the recursive patch of a stream item that was kept on reset (-> onBeforeNodeAdded)
           childrenOnly: targetContainer2.getAttribute(PHX_COMPONENT) === null && !withChildren,
+          keyedRoot: targetContainer2.getAttribute(PHX_COMPONENT) != null,
           getNodeKey: (node) => {
+            if (!(node instanceof Element))
+              return null;
             if (dom_default.isPhxDestroyed(node)) {
               return null;
             }
             if (isJoinPatch) {
               return node.id;
             }
-            return node.id || node.getAttribute && node.getAttribute(PHX_MAGIC_ID);
+            if (dom_default.private(node, "clientsideIdAttribute")) {
+              return node.getAttribute(PHX_MAGIC_ID);
+            }
+            return node.id || node.getAttribute(PHX_MAGIC_ID);
           },
           // skip indexing from children when container is stream
           skipFromChildren: (from2) => {
@@ -3947,7 +4198,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
                 const nonStreamChild = Array.from(parent.children).find(
                   (c) => !c.hasAttribute(PHX_STREAM_REF)
                 );
-                parent.insertBefore(child, nonStreamChild);
+                parent.insertBefore(child, nonStreamChild ?? null);
               } else {
                 parent.appendChild(child);
               }
@@ -3957,11 +4208,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             }
           },
           onBeforeNodeAdded: (el) => {
+            if (!(el instanceof Element)) {
+              return el;
+            }
             if (this.getStreamInsert(el)?.updateOnly && !this.streamComponentRestore[el.id]) {
               return false;
             }
             dom_default.maintainPrivateHooks(el, el, phxViewportTop, phxViewportBottom);
-            this.trackBefore("added", el);
             let morphedEl = el;
             if (this.streamComponentRestore[el.id]) {
               morphedEl = this.streamComponentRestore[el.id];
@@ -3971,9 +4224,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             return morphedEl;
           },
           onNodeAdded: (el) => {
-            if (el.getAttribute) {
-              this.maybeReOrderStream(el, true);
+            if (!(el instanceof Element)) {
+              added.push(el);
+              return;
             }
+            this.maybeReOrderStream(el, true);
             if (dom_default.isPortalTemplate(el)) {
               portalCallbacks.push(() => this.teleport(el, morph));
             }
@@ -3986,16 +4241,19 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               externalFormTriggered = el;
             }
             if (dom_default.isPhxChild(el) && view.ownsElement(el) || dom_default.isPhxSticky(el) && view.ownsElement(el.parentNode)) {
-              this.trackAfter("phxChildAdded", el);
+              this.trackAfterPhxChildAdded(el);
             }
             if (el.nodeName === "SCRIPT" && el.hasAttribute(PHX_RUNTIME_HOOK)) {
-              this.handleRuntimeHook(el, source);
+              el = this.handleRuntimeHook(el, source);
             }
             added.push(el);
           },
           onNodeDiscarded: (el) => this.onNodeDiscarded(el),
           onBeforeNodeDiscarded: (el) => {
-            if (el.getAttribute && el.getAttribute(PHX_PRUNE) !== null) {
+            if (!(el instanceof Element)) {
+              return true;
+            }
+            if (el.getAttribute(PHX_PRUNE) !== null) {
               return true;
             }
             if (el.parentElement !== null && el.id && dom_default.isPhxUpdate(el.parentElement, phxUpdate, [
@@ -4005,7 +4263,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             ])) {
               return false;
             }
-            if (el.getAttribute && el.getAttribute(PHX_TELEPORTED_REF)) {
+            if (el.getAttribute(PHX_TELEPORTED_REF)) {
               return false;
             }
             if (this.maybePendingRemove(el)) {
@@ -4016,7 +4274,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             }
             if (dom_default.isPortalTemplate(el)) {
               const teleportedEl = document.getElementById(
-                el.content.firstElementChild.id
+                el.content.firstElementChild?.id || ""
               );
               if (teleportedEl) {
                 teleportedEl.remove();
@@ -4034,11 +4292,6 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             this.maybeReOrderStream(el, false);
           },
           onBeforeElUpdated: (fromEl, toEl) => {
-            if (fromEl.id && fromEl.isSameNode(targetContainer2) && fromEl.id !== toEl.id) {
-              morphCallbacks.onNodeDiscarded(fromEl);
-              fromEl.replaceWith(toEl);
-              return morphCallbacks.onNodeAdded(toEl);
-            }
             dom_default.syncPendingAttrs(fromEl, toEl);
             dom_default.maintainPrivateHooks(
               fromEl,
@@ -4046,8 +4299,12 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               phxViewportTop,
               phxViewportBottom
             );
-            dom_default.cleanChildNodes(toEl, phxUpdate);
+            dom_default.cleanChildNodes(toEl, phxUpdate, reportError);
+            const isFocusedFormEl = focused && fromEl.isSameNode(focused) && dom_default.isEditableInput(fromEl);
+            const focusedSelectChanged = isFocusedFormEl && this.isChangedSelect(fromEl, toEl);
             if (this.skipCIDSibling(toEl)) {
+              this.maybeCloneLockedElement(fromEl, isFocusedFormEl);
+              this.copyNestedPrivateLock(fromEl, toEl);
               this.maybeReOrderStream(fromEl);
               return false;
             }
@@ -4064,7 +4321,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               return false;
             }
             if (dom_default.isIgnored(fromEl, phxUpdate) || fromEl.form && fromEl.form.isSameNode(externalFormTriggered)) {
-              this.trackBefore("updated", fromEl, toEl);
+              this.trackBeforeUpdated(fromEl, toEl);
               dom_default.mergeAttrs(fromEl, toEl, {
                 isIgnored: dom_default.isIgnored(fromEl, phxUpdate)
               });
@@ -4075,22 +4332,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             if (fromEl.type === "number" && fromEl.validity && fromEl.validity.badInput) {
               return false;
             }
-            const isFocusedFormEl = focused && fromEl.isSameNode(focused) && dom_default.isFormInput(fromEl);
-            const focusedSelectChanged = isFocusedFormEl && this.isChangedSelect(fromEl, toEl);
-            if (fromEl.hasAttribute(PHX_REF_SRC)) {
-              const ref = new ElementRef(fromEl);
-              if (ref.lockRef && (!this.undoRef || !ref.isLockUndoneBy(this.undoRef))) {
-                dom_default.applyStickyOperations(fromEl);
-                const isLocked = fromEl.hasAttribute(PHX_REF_LOCK);
-                const clone22 = isLocked ? dom_default.private(fromEl, PHX_REF_LOCK) || fromEl.cloneNode(true) : null;
-                if (clone22) {
-                  dom_default.putPrivate(fromEl, PHX_REF_LOCK, clone22);
-                  if (!isFocusedFormEl) {
-                    fromEl = clone22;
-                  }
-                }
-              }
-            }
+            fromEl = this.maybeCloneLockedElement(fromEl, isFocusedFormEl);
             if (dom_default.isPhxChild(toEl)) {
               const prevSession = fromEl.getAttribute(PHX_SESSION);
               dom_default.mergeAttrs(fromEl, toEl, { exclude: [PHX_STATIC] });
@@ -4101,21 +4343,15 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               dom_default.applyStickyOperations(fromEl);
               return false;
             }
-            if (this.undoRef && dom_default.private(toEl, PHX_REF_LOCK)) {
-              dom_default.putPrivate(
-                fromEl,
-                PHX_REF_LOCK,
-                dom_default.private(toEl, PHX_REF_LOCK)
-              );
-            }
+            this.copyNestedPrivateLock(fromEl, toEl);
             dom_default.copyPrivates(toEl, fromEl);
             if (dom_default.isPortalTemplate(toEl)) {
               portalCallbacks.push(() => this.teleport(toEl, morph));
               fromEl.content.replaceChildren(toEl.content.cloneNode(true));
               return false;
             }
-            if (isFocusedFormEl && fromEl.type !== "hidden" && !focusedSelectChanged) {
-              this.trackBefore("updated", fromEl, toEl);
+            if (isFocusedFormEl && fromEl.type !== "hidden" && !focusedSelectChanged && !toEl.hasAttribute(phxPatchFocused)) {
+              this.trackBeforeUpdated(fromEl, toEl);
               dom_default.mergeFocusedInput(fromEl, toEl);
               dom_default.syncAttrsToProps(fromEl);
               updates.push(fromEl);
@@ -4136,15 +4372,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               }
               dom_default.syncAttrsToProps(toEl);
               dom_default.applyStickyOperations(toEl);
-              this.trackBefore("updated", fromEl, toEl);
+              this.trackBeforeUpdated(fromEl, toEl);
               return fromEl;
             }
           }
         };
-        morphdom_esm_default(targetContainer2, source, morphCallbacks);
+        index_default(targetContainer2, source, morphCallbacks);
       };
-      this.trackBefore("added", container);
-      this.trackBefore("updated", container, container);
+      this.trackBeforeUpdated(container, container);
       liveSocket2.time("morphdom", () => {
         this.streams.forEach(([ref, inserts, deleteIds, reset]) => {
           inserts.forEach(([key, streamAt, limit, updateOnly]) => {
@@ -4180,26 +4415,29 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         this.view.portalElementIds.forEach((id) => {
           const el = document.getElementById(id);
           if (el) {
-            const source = document.getElementById(
-              el.getAttribute(PHX_TELEPORTED_SRC)
-            );
-            if (!source) {
-              el.remove();
-              this.onNodeDiscarded(el);
-              this.view.dropPortalElementId(id);
+            const srcId = el.getAttribute(PHX_TELEPORTED_SRC);
+            if (srcId) {
+              const source = document.getElementById(srcId);
+              if (!source) {
+                el.remove();
+                this.onNodeDiscarded(el);
+                this.view.dropPortalElementId(id);
+              }
             }
           }
         });
       });
       if (liveSocket2.isDebugEnabled()) {
-        detectDuplicateIds();
-        detectInvalidStreamInserts(this.streamInserts);
+        detectDuplicateIds(reportError);
+        detectInvalidStreamInserts(this.streamInserts, reportError);
         Array.from(document.querySelectorAll("input[name=id]")).forEach(
           (node) => {
             if (node instanceof HTMLInputElement && node.form) {
-              console.error(
+              reportError(
+                "dom.form-input-name-id",
                 'Detected an input with name="id" inside a form! This will cause problems when patching the DOM.\n',
-                node
+                { el: node },
+                { attribution: "app" }
               );
             }
           }
@@ -4214,8 +4452,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         () => dom_default.restoreFocus(focused, selectionStart, selectionEnd)
       );
       dom_default.dispatchEvent(document, "phx:update");
-      added.forEach((el) => this.trackAfter("added", el));
-      updates.forEach((el) => this.trackAfter("updated", el));
+      added.forEach((el) => this.trackAfterAdded(el));
+      updates.forEach((el) => this.trackAfterUpdated(el));
       this.transitionPendingRemoves();
       if (externalFormTriggered) {
         liveSocket2.unload();
@@ -4237,11 +4475,29 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       return true;
     }
+    trackBeforeUpdated(fromEl, toEl) {
+      this.beforeUpdatedCallbacks.forEach((cb) => cb(fromEl, toEl));
+    }
+    trackAfterAdded(el) {
+      this.afterAddedCallbacks.forEach((cb) => cb(el));
+    }
+    trackAfterUpdated(el) {
+      this.afterUpdatedCallbacks.forEach((cb) => cb(el));
+    }
+    trackAfterPhxChildAdded(el) {
+      this.afterPhxChildAddedCallbacks.forEach((cb) => cb(el));
+    }
+    trackAfterDiscarded(el) {
+      this.afterDiscardedCallbacks.forEach((cb) => cb(el));
+    }
+    trackAfterTransitionsDiscarded(els) {
+      this.afterTransitionsDiscardedCallbacks.forEach((cb) => cb(els));
+    }
     onNodeDiscarded(el) {
       if (dom_default.isPhxChild(el) || dom_default.isPhxSticky(el)) {
         this.liveSocket.destroyViewByEl(el);
       }
-      this.trackAfter("discarded", el);
+      this.trackAfterDiscarded(el);
     }
     maybePendingRemove(node) {
       if (node.getAttribute && node.getAttribute(this.phxRemove) !== null) {
@@ -4276,7 +4532,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         (el2) => el2.setAttribute(PHX_STREAM_REF, ref)
       );
     }
-    maybeReOrderStream(el, isNew) {
+    maybeReOrderStream(el, isNew = false) {
       const { ref, streamAt, reset } = this.getStreamInsert(el);
       if (streamAt === void 0) {
         return;
@@ -4289,36 +4545,62 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         return;
       }
       if (streamAt === 0) {
-        el.parentElement.insertBefore(el, el.parentElement.firstElementChild);
+        this.moveOrInsertBefore(
+          el.parentElement,
+          el,
+          el.parentElement.firstElementChild
+        );
       } else if (streamAt > 0) {
         const children = Array.from(el.parentElement.children);
         const oldIndex = children.indexOf(el);
         if (streamAt >= children.length - 1) {
-          el.parentElement.appendChild(el);
+          this.moveOrInsertBefore(el.parentElement, el, null);
         } else {
           const sibling = children[streamAt];
           if (oldIndex > streamAt) {
-            el.parentElement.insertBefore(el, sibling);
+            this.moveOrInsertBefore(el.parentElement, el, sibling);
           } else {
-            el.parentElement.insertBefore(el, sibling.nextElementSibling);
+            this.moveOrInsertBefore(
+              el.parentElement,
+              el,
+              sibling.nextElementSibling
+            );
           }
         }
       }
       this.maybeLimitStream(el);
     }
+    // Reorder a child within its parent. When supported, use the atomic
+    // moveBefore (https://developer.mozilla.org/en-US/docs/Web/API/Node/moveBefore)
+    // so connected custom elements (and other state-bearing nodes like iframes)
+    // are not disconnected and reconnected by the move. Falls back to
+    // insertBefore otherwise. Passing `ref === null` moves to the end.
+    // See also https://github.com/phoenixframework/phoenix_live_view/issues/4212.
+    moveOrInsertBefore(parent, child, ref) {
+      if (typeof parent.moveBefore === "function") {
+        try {
+          parent.moveBefore(child, ref);
+          return;
+        } catch {
+        }
+      }
+      parent.insertBefore(child, ref);
+    }
     maybeLimitStream(el) {
       const { limit } = this.getStreamInsert(el);
-      const children = limit !== null && Array.from(el.parentElement.children);
-      if (limit && limit < 0 && children.length > limit * -1) {
-        children.slice(0, children.length + limit).forEach((child) => this.removeStreamChildElement(child));
-      } else if (limit && limit >= 0 && children.length > limit) {
-        children.slice(limit).forEach((child) => this.removeStreamChildElement(child));
+      if (limit !== null) {
+        const children = Array.from(el.parentElement.children);
+        if (limit < 0 && children.length > limit * -1) {
+          children.slice(0, children.length + limit).forEach((child) => this.removeStreamChildElement(child));
+        } else if (limit >= 0 && children.length > limit) {
+          children.slice(limit).forEach((child) => this.removeStreamChildElement(child));
+        }
       }
     }
     transitionPendingRemoves() {
       const { pendingRemoves, liveSocket: liveSocket2 } = this;
       if (pendingRemoves.length > 0) {
-        liveSocket2.transitionRemoves(pendingRemoves, () => {
+        liveSocket2.transitionRemoves(pendingRemoves, this.view, () => {
           pendingRemoves.forEach((el) => {
             const child = dom_default.firstPhxChild(el);
             if (child) {
@@ -4326,7 +4608,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             }
             el.remove();
           });
-          this.trackAfter("transitionsDiscarded", pendingRemoves);
+          this.trackAfterTransitionsDiscarded(pendingRemoves);
         });
       }
     }
@@ -4340,25 +4622,27 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       toEl.value = fromEl.value;
       return !fromEl.isEqualNode(toEl);
     }
-    isCIDPatch() {
-      return this.cidPatch;
-    }
     skipCIDSibling(el) {
       return el.nodeType === Node.ELEMENT_NODE && el.hasAttribute(PHX_SKIP);
     }
-    targetCIDContainer(html) {
-      if (!this.isCIDPatch()) {
+    maybeCloneLockedElement(fromEl, isFocusedFormEl) {
+      if (!fromEl.hasAttribute(PHX_REF_SRC))
+        return fromEl;
+      const ref = new ElementRef(fromEl);
+      if (!fromEl.hasAttribute(PHX_REF_LOCK) || this.undoRef !== null && ref.isLockUndoneBy(this.undoRef)) {
+        return fromEl;
+      }
+      dom_default.applyStickyOperations(fromEl);
+      const clone22 = fromEl.hasAttribute(PHX_REF_LOCK) ? dom_default.private(fromEl, PHX_REF_LOCK) || fromEl.cloneNode(true) : null;
+      if (!clone22)
+        return fromEl;
+      dom_default.putPrivate(fromEl, PHX_REF_LOCK, clone22);
+      return isFocusedFormEl ? fromEl : clone22;
+    }
+    copyNestedPrivateLock(fromEl, toEl) {
+      if (this.undoRef === null || !dom_default.private(toEl, PHX_REF_LOCK))
         return;
-      }
-      const [first, ...rest] = dom_default.findComponentNodeList(
-        this.view.id,
-        this.targetCID
-      );
-      if (rest.length === 0 && dom_default.childNodeLength(html) === 1) {
-        return first;
-      } else {
-        return first && first.parentNode;
-      }
+      dom_default.putPrivate(fromEl, PHX_REF_LOCK, dom_default.private(toEl, PHX_REF_LOCK));
     }
     indexOf(parent, child) {
       return Array.from(parent.children).indexOf(child);
@@ -4404,7 +4688,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       if (el.hasAttribute("nonce")) {
         const template = document.createElement("template");
         template.innerHTML = source;
-        nonce = template.content.querySelector(`script[${PHX_RUNTIME_HOOK}="${CSS.escape(name)}"]`).getAttribute("nonce");
+        nonce = template.content.querySelector(`script[${PHX_RUNTIME_HOOK}="${CSS.escape(name)}"]`)?.getAttribute("nonce") ?? null;
       }
       const script = document.createElement("script");
       script.textContent = el.textContent;
@@ -4413,7 +4697,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         script.nonce = nonce;
       }
       el.replaceWith(script);
-      el = script;
+      return script;
     }
   };
   var VOID_TAGS = /* @__PURE__ */ new Set([
@@ -4436,8 +4720,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
   ]);
   var quoteChars = /* @__PURE__ */ new Set(["'", '"']);
   var modifyRoot = (html, attrs, clearInnerHTML) => {
-    let i = 0;
-    let insideComment = false;
+    let i;
+    let insideComment;
     let beforeTag, afterTag, tag, tagNameEndsAt, id, newHTML;
     const lookahead = html.match(/^(\s*(?:<!--.*?-->\s*)*)<([^\s\/>]+)/);
     if (lookahead === null) {
@@ -4505,6 +4789,152 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     return [newHTML, beforeTag, afterTag];
   };
+  var RenderingBuffer = class {
+    constructor(_preMerge, _cid) {
+      this.html = "";
+      this.pending = [];
+    }
+    /**
+     * Characters written so far, counting what an open root was split off from.
+     * A buffer that records positions brackets spans with this.
+     *
+     * Summed on read rather than tracked on write: only a buffer that records
+     * positions ever asks, and tracking it charged every render that never does.
+     * Roots nest shallowly, so the walk is short.
+     */
+    get length() {
+      let total = this.html.length;
+      for (let i = 0; i < this.pending.length; i++) {
+        total += this.pending[i].length;
+      }
+      return total;
+    }
+    write(str) {
+      this.html += str;
+    }
+    toString() {
+      return this.html;
+    }
+    /**
+     * Brackets a root element: everything written in between is a single
+     * element, `attrs` are added to its start tag, and `clearInnerHTML`
+     * additionally discards its contents (LiveView skips re-rendering a root
+     * that did not change and reuses what is already in the DOM).
+     *
+     * The default isolates the element so it can rewrite it without touching
+     * what came before. A buffer that records positions overrides both, keeping
+     * it continuous and applying its edits at the end instead; `length` stays
+     * continuous across the pair either way.
+     */
+    beginRoot() {
+      this.pending.push(this.html);
+      this.html = "";
+    }
+    endRoot(attrs, clearInnerHTML) {
+      const [root, before, after] = modifyRoot(this.html, attrs, clearInnerHTML);
+      this.html = this.pending.pop() + before + root + after;
+    }
+    /**
+     * Brackets the dynamic at `statics[index]` of `node`. Called around every
+     * dynamic of every render, so the default has to be cheap; see
+     * {@link ReportingBuffer} for what a buffer can do with it.
+     */
+    enter(_node, _index, _statics) {
+    }
+    exit() {
+    }
+    /**
+     * Brackets one entry of a keyed comprehension. Entries hold dynamics without
+     * being one themselves, so they are opened separately from `enter`.
+     */
+    beginKeyedEntry(_index) {
+    }
+    endKeyedEntry() {
+    }
+  };
+  var ALL_CHANGED = Symbol("all changed");
+  var ReportingBuffer = class extends RenderingBuffer {
+    constructor(preMerge, cid) {
+      super(preMerge, cid);
+      this.frames = [];
+      this.cursors = [];
+      this.diff = this.cursorFor(preMerge, cid);
+    }
+    // Cloning is not optional: the merge adopts diff subtrees into the rendered
+    // tree and then mutates them. The copy is shared by every buffer of the
+    // render that follows, so nothing here may consume it.
+    static preMerge(diff) {
+      return deepClone(diff);
+    }
+    cursorFor(preMerge, cid) {
+      if (!preMerge) {
+        return void 0;
+      } else if (cid === null) {
+        return preMerge;
+      } else {
+        return preMerge[COMPONENTS] && preMerge[COMPONENTS][cid];
+      }
+    }
+    /**
+     * Called around every dynamic in the tree. A change is reported at every
+     * level, so a dynamic containing a changed one is itself reported as
+     * changed; a buffer that wants to attribute a change to the innermost thing
+     * that changed applies that policy itself, walking `frames`.
+     */
+    onEnter(_frame) {
+    }
+    onExit(_frame) {
+    }
+    /** Where in the diff the renderer currently is. */
+    currentDiff() {
+      return this.cursors.length > 0 ? this.cursors[this.cursors.length - 1] : this.diff;
+    }
+    enter(node, index, statics) {
+      const diff = this.diffFor(this.currentDiff(), index);
+      const frame = {
+        node,
+        index,
+        statics,
+        changed: diff !== void 0
+      };
+      this.cursors.push(diff);
+      this.frames.push(frame);
+      this.onEnter(frame);
+    }
+    exit() {
+      this.cursors.pop();
+      this.onExit(this.frames.pop());
+    }
+    beginKeyedEntry(index) {
+      this.cursors.push(this.keyedEntry(this.currentDiff(), index));
+    }
+    endKeyedEntry() {
+      this.cursors.pop();
+    }
+    keyedEntry(diffNode, index) {
+      const keyed = this.diffFor(diffNode, KEYED);
+      if (keyed === ALL_CHANGED || keyed === void 0) {
+        return keyed;
+      }
+      const entry = keyed[index];
+      if (Array.isArray(entry)) {
+        return entry[1];
+      } else if (typeof entry === "number") {
+        return void 0;
+      } else {
+        return entry;
+      }
+    }
+    diffFor(diffNode, key) {
+      if (diffNode === void 0 || diffNode === null) {
+        return void 0;
+      } else if (diffNode === ALL_CHANGED || diffNode[STATIC] !== void 0) {
+        return ALL_CHANGED;
+      } else {
+        return diffNode[key];
+      }
+    }
+  };
   var Rendered = class {
     static extract(diff) {
       const { [REPLY]: reply, [EVENTS]: events, [TITLE]: title } = diff;
@@ -4513,11 +4943,17 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       delete diff[TITLE];
       return { diff, title, reply: reply || null, events: events || [] };
     }
-    constructor(viewId, rendered) {
+    // The buffer class is read afresh on every merge and every render rather
+    // than held, so one installed after this tree mounted still takes effect —
+    // for the parts of the page the next patch renders, and no sooner.
+    constructor(viewId, rendered, bufferClass = () => RenderingBuffer) {
       this.viewId = viewId;
       this.rendered = {};
       this.magicId = 0;
+      this.bufferClass = bufferClass;
+      this.initialMerge = true;
       this.mergeDiff(rendered);
+      this.initialMerge = false;
     }
     parentViewId() {
       return this.viewId;
@@ -4528,20 +4964,29 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         this.rendered[COMPONENTS],
         onlyCids,
         true,
-        {}
+        {},
+        null
       );
       return { buffer: str, streams };
     }
-    recursiveToString(rendered, components = rendered[COMPONENTS], onlyCids, changeTracking, rootAttrs) {
+    // cid identifies the subtree being rendered to the buffer: null for the root
+    // tree, a component id otherwise.
+    recursiveToString(rendered, components = rendered[COMPONENTS], onlyCids, changeTracking, rootAttrs, cid) {
       onlyCids = onlyCids ? new Set(onlyCids) : null;
+      const bufferClass = this.bufferClass();
+      const [mergedBy, preMerge] = this.bufferPreMerge;
+      const buffer = new bufferClass(
+        mergedBy === bufferClass ? preMerge : void 0,
+        cid
+      );
       const output = {
-        buffer: "",
+        buffer,
         components,
         onlyCids,
         streams: /* @__PURE__ */ new Set()
       };
       this.toOutputBuffer(rendered, null, output, changeTracking, rootAttrs);
-      return { buffer: output.buffer, streams: output.streams };
+      return { buffer: buffer.toString(), streams: output.streams };
     }
     componentCIDs(diff) {
       return Object.keys(diff[COMPONENTS] || {}).map((i) => parseInt(i));
@@ -4561,6 +5006,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
     mergeDiff(diff) {
+      const bufferClass = this.bufferClass();
+      this.bufferPreMerge = [
+        bufferClass,
+        !this.initialMerge && bufferClass.preMerge ? bufferClass.preMerge(diff) : void 0
+      ];
       const newc = diff[COMPONENTS];
       const cache = {};
       delete diff[COMPONENTS];
@@ -4627,17 +5077,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
     clone(diff) {
-      if ("structuredClone" in window) {
-        return structuredClone(diff);
-      } else {
-        return JSON.parse(JSON.stringify(diff));
-      }
+      return deepClone(diff);
     }
     // keyed comprehensions
     mergeKeyed(target, source) {
-      const clonedTarget = this.clone(target);
+      const clonedTarget = source[KEYED][KEYED_MOVED] && this.clone(target);
       Object.entries(source[KEYED]).forEach(([i, entry]) => {
-        if (i === KEYED_COUNT) {
+        if (i === KEYED_COUNT || i === KEYED_MOVED) {
           return;
         }
         if (Array.isArray(entry)) {
@@ -4680,6 +5126,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       if (source[KEYED]) {
         merged = this.clone(target);
         this.mergeKeyed(merged, source);
+        if (pruneMagicId) {
+          this.pruneInternalIds(merged);
+        }
       } else {
         merged = { ...target, ...source };
         for (const key in merged) {
@@ -4693,12 +5142,27 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       }
       if (pruneMagicId) {
-        delete merged.magicId;
-        delete merged.newRender;
+        this.deleteInternalIds(merged);
       } else if (target[ROOT]) {
         merged.newRender = true;
       }
       return merged;
+    }
+    // A component sharing statics with another cid is cloned from that cid's
+    // tree, which would otherwise carry that cid's magic IDs along. They identify
+    // the node they came from, so a duplicate would be wrong for as long as the
+    // clone lives.
+    pruneInternalIds(rendered) {
+      for (const key in rendered) {
+        if (isObject(rendered[key])) {
+          this.pruneInternalIds(rendered[key]);
+        }
+      }
+      this.deleteInternalIds(rendered);
+    }
+    deleteInternalIds(rendered) {
+      delete rendered.magicId;
+      delete rendered.newRender;
     }
     componentToString(cid) {
       const { buffer: str, streams } = this.recursiveCIDToString(
@@ -4750,19 +5214,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       statics = this.templateStatic(statics, templates);
       rendered[STATIC] = statics;
       const isRoot = rendered[ROOT];
-      const prevBuffer = output.buffer;
       if (isRoot) {
-        output.buffer = "";
+        output.buffer.beginRoot();
       }
       if (changeTracking && isRoot && !rendered.magicId) {
         rendered.newRender = true;
         rendered.magicId = this.nextMagicID();
       }
-      output.buffer += statics[0];
-      for (let i = 1; i < statics.length; i++) {
-        this.dynamicToBuffer(rendered[i - 1], templates, output, changeTracking);
-        output.buffer += statics[i];
-      }
+      this.dynamicsToBuffer(rendered, statics, templates, output, changeTracking);
       if (isRoot) {
         let skip2 = false;
         let attrs;
@@ -4775,14 +5234,27 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         if (skip2) {
           attrs[PHX_SKIP] = true;
         }
-        const [newRoot, commentBefore, commentAfter] = modifyRoot(
-          output.buffer,
-          attrs,
-          skip2
-        );
+        output.buffer.endRoot(attrs, skip2);
         rendered.newRender = false;
-        output.buffer = prevBuffer + commentBefore + newRoot + commentAfter;
       }
+    }
+    // Emits `statics` interleaved with the dynamics held on `node`, which is
+    // either a rendered struct or a single entry of a keyed comprehension.
+    //
+    // Every dynamic is opened and closed on the buffer, whether or not the buffer
+    // does anything with it. Skipping that for buffers that do not care was worth
+    // ~4-6% of render on component-heavy trees and nothing on any other shape,
+    // which is under 1% of a patch once the DOM work around it is counted — not
+    // worth a capability flag a buffer can forget to set.
+    dynamicsToBuffer(node, statics, templates, output, changeTracking) {
+      const buffer = output.buffer;
+      for (let i = 0; i < statics.length - 1; i++) {
+        buffer.write(statics[i]);
+        buffer.enter(node, i, statics);
+        this.dynamicToBuffer(node[i], templates, output, changeTracking);
+        buffer.exit();
+      }
+      buffer.write(statics[statics.length - 1]);
     }
     comprehensionToBuffer(rendered, templates, output, changeTracking) {
       const keyedTemplates = templates || rendered[TEMPLATES];
@@ -4790,16 +5262,15 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       rendered[STATIC] = statics;
       delete rendered[TEMPLATES];
       for (let i = 0; i < rendered[KEYED][KEYED_COUNT]; i++) {
-        output.buffer += statics[0];
-        for (let j = 1; j < statics.length; j++) {
-          this.dynamicToBuffer(
-            rendered[KEYED][i][j - 1],
-            keyedTemplates,
-            output,
-            changeTracking
-          );
-          output.buffer += statics[j];
-        }
+        output.buffer.beginKeyedEntry(i);
+        this.dynamicsToBuffer(
+          rendered[KEYED][i],
+          statics,
+          keyedTemplates,
+          output,
+          changeTracking
+        );
+        output.buffer.endKeyedEntry();
       }
       if (rendered[STREAM]) {
         const stream = rendered[STREAM];
@@ -4820,30 +5291,46 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           rendered,
           output.onlyCids
         );
-        output.buffer += str;
+        output.buffer.write(str);
         output.streams = /* @__PURE__ */ new Set([...output.streams, ...streams]);
       } else if (isObject(rendered)) {
         this.toOutputBuffer(rendered, templates, output, changeTracking, {});
       } else {
-        output.buffer += rendered;
+        output.buffer.write(rendered);
       }
     }
     recursiveCIDToString(components, cid, onlyCids) {
-      const component = components[cid] || logError(`no component for CID ${cid}`, components);
-      const attrs = { [PHX_COMPONENT]: cid, [PHX_VIEW_REF]: this.viewId };
-      const skip2 = onlyCids && !onlyCids.has(cid);
-      component.newRender = !skip2;
-      component.magicId = `c${cid}-${this.parentViewId()}`;
-      const changeTracking = !component.reset;
-      const { buffer: html, streams } = this.recursiveToString(
-        component,
-        components,
-        onlyCids,
-        changeTracking,
-        attrs
-      );
-      delete component.reset;
-      return { buffer: html, streams };
+      if (components[cid]) {
+        const component = components[cid];
+        const attrs = { [PHX_COMPONENT]: cid, [PHX_VIEW_REF]: this.viewId };
+        const skip2 = onlyCids && !onlyCids.has(cid);
+        component.newRender = !skip2;
+        component.magicId = `c${cid}-${this.parentViewId()}`;
+        const changeTracking = !component.reset;
+        const { buffer: html, streams } = this.recursiveToString(
+          component,
+          components,
+          onlyCids,
+          changeTracking,
+          attrs,
+          cid
+        );
+        delete component.reset;
+        return { buffer: html, streams };
+      } else {
+        logError(
+          "render.missing-component",
+          `no component for CID ${cid}`,
+          {
+            cid,
+            components
+          },
+          { viewId: this.viewId, attribution: "internal" }
+        );
+        throw new Error(
+          "Cannot continue render due to missing component: " + cid
+        );
+      }
     }
   };
   var focusStack = [];
@@ -4855,7 +5342,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         null,
         { callback: defaults2 && defaults2.callback }
       ];
-      const commands = phxEvent.charAt(0) === "[" ? JSON.parse(phxEvent) : [[defaultKind, defaultArgs]];
+      const commands = Array.isArray(phxEvent) ? phxEvent : typeof phxEvent === "string" && phxEvent.startsWith("[") ? JSON.parse(phxEvent) : [[defaultKind, defaultArgs]];
       commands.forEach(([kind, args]) => {
         if (kind === defaultKind) {
           args = { ...defaultArgs, ...args };
@@ -4922,7 +5409,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
         if (eventType === "change") {
           let { newCid, _target } = args;
-          _target = _target || (dom_default.isFormInput(sourceEl) ? sourceEl.name : void 0);
+          _target = _target || (dom_default.isFormAssociated(sourceEl) ? sourceEl.name : void 0);
           if (_target) {
             pushOpts._target = _target;
           }
@@ -4994,16 +5481,33 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       });
     },
     exec_push_focus(e, eventType, phxEvent, view, sourceEl, el) {
-      focusStack.push(el || sourceEl);
+      if (view.isDestroyed()) {
+        return;
+      }
+      focusStack.push({ el: el || sourceEl, view });
     },
-    exec_pop_focus(_e, _eventType, _phxEvent, _view, _sourceEl, _el) {
-      const el = focusStack.pop();
-      if (el) {
+    exec_pop_focus(_e, _eventType, _phxEvent, view, _sourceEl, _el) {
+      if (view.isDestroyed()) {
+        return;
+      }
+      const focusEntry = focusStack.pop();
+      if (focusEntry) {
+        const { el } = focusEntry;
         el.focus();
         window.requestAnimationFrame(() => {
           window.requestAnimationFrame(() => el.focus());
         });
       }
+    },
+    dropFocus(view) {
+      let dropped = 0;
+      for (let i = focusStack.length - 1; i >= 0; i--) {
+        if (focusStack[i].view === view) {
+          focusStack.splice(i, 1);
+          dropped++;
+        }
+      }
+      return dropped;
     },
     exec_add_class(e, eventType, phxEvent, view, sourceEl, el, { names: names2, transition, time, blocking }) {
       this.addOrRemoveClasses(el, names2, [], transition, time, view, blocking);
@@ -5094,7 +5598,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     },
     toggle(eventType, view, el, display, ins, outs, time, blocking) {
-      time = time || default_transition_time;
+      time = time == null ? default_transition_time : time;
       const [inClasses, inStartClasses, inEndClasses] = ins || [[], [], []];
       const [outClasses, outStartClasses, outEndClasses] = outs || [[], [], []];
       if (inClasses.length > 0 || outClasses.length > 0) {
@@ -5224,7 +5728,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     },
     addOrRemoveClasses(el, adds, removes, transition, time, view, blocking) {
-      time = time || default_transition_time;
+      time = time == null ? default_transition_time : time;
       const [transitionRun, transitionStart, transitionEnd] = transition || [
         [],
         [],
@@ -5279,6 +5783,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       const alteredAttrs = sets.map(([attr, _val]) => attr).concat(removes);
       const newSets = prevSets.filter(([attr, _val]) => !alteredAttrs.includes(attr)).concat(sets);
       const newRemoves = prevRemoves.filter((attr) => !alteredAttrs.includes(attr)).concat(removes);
+      if (sets.some(([attr, val]) => attr === "id" && el.getAttribute("id") !== val)) {
+        dom_default.putPrivate(el, "clientsideIdAttribute", true);
+      }
       dom_default.putSticky(el, "attrs", (currentEl) => {
         newRemoves.forEach((attr) => currentEl.removeAttribute(attr));
         newSets.forEach(([attr, val]) => currentEl.setAttribute(attr, val));
@@ -5431,6 +5938,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         });
       },
       navigate(href, opts = {}) {
+        ensureSameOrigin(href, "navigate");
         const customEvent = new CustomEvent("phx:exec");
         liveSocket2.historyRedirect(
           customEvent,
@@ -5441,6 +5949,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         );
       },
       patch(href, opts = {}) {
+        ensureSameOrigin(href, "patch");
         const customEvent = new CustomEvent("phx:exec");
         liveSocket2.pushHistoryPatch(
           customEvent,
@@ -5461,15 +5970,19 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     get liveSocket() {
       return this.__liveSocket();
     }
+    /** @internal */
     static makeID() {
       return viewHookID++;
     }
+    /** @internal */
     static elementID(el) {
       return dom_default.private(el, HOOK_ID);
     }
+    /** @internal */
     static deadHook(el) {
       return dom_default.private(el, DEAD_HOOK) === true;
     }
+    /** @internal */
     constructor(view, el, callbacks) {
       this.el = el;
       this.__attachView(view);
@@ -5551,7 +6064,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     // Default lifecycle methods
     mounted() {
     }
-    beforeUpdate() {
+    beforeUpdate(_toEl) {
     }
     updated() {
     }
@@ -5571,8 +6084,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.updated();
     }
     /** @internal */
-    __beforeUpdate() {
-      this.beforeUpdate();
+    __beforeUpdate(toEl) {
+      this.beforeUpdate(toEl);
     }
     /** @internal */
     __destroyed() {
@@ -5610,9 +6123,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         return promise.then(({ reply }) => reply);
       }
       promise.then(
-        ({ reply, ref }) => onReply(reply, ref)
-      ).catch(() => {
-      });
+        ({ reply, ref }) => onReply(reply, ref),
+        () => {
+        }
+      );
     }
     pushEventTo(selectorOrTarget, event, payload, onReply) {
       if (onReply === void 0) {
@@ -5624,7 +6138,12 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           }
         );
         const promises = targetPair.map(({ view, targetCtx }) => {
-          return view.pushHookEvent(this.el, targetCtx, event, payload || {});
+          return view.pushHookEvent(
+            this.el,
+            targetCtx,
+            event,
+            payload || {}
+          );
         });
         return Promise.allSettled(promises);
       }
@@ -5632,9 +6151,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         selectorOrTarget,
         (view, targetCtx) => {
           view.pushHookEvent(this.el, targetCtx, event, payload || {}).then(
-            ({ reply, ref }) => onReply(reply, ref)
-          ).catch(() => {
-          });
+            ({ reply, ref }) => onReply(reply, ref),
+            () => {
+            }
+          );
         }
       );
     }
@@ -5684,74 +6204,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     return baseKey;
   };
-  var serializeForm = (form, opts, onlyNames = []) => {
-    const { submitter } = opts;
-    let injectedElement;
-    if (submitter && submitter.name) {
-      const input = document.createElement("input");
-      input.type = "hidden";
-      const formId = submitter.getAttribute("form");
-      if (formId) {
-        input.setAttribute("form", formId);
-      }
-      input.name = submitter.name;
-      input.value = submitter.value;
-      submitter.parentElement.insertBefore(input, submitter);
-      injectedElement = input;
-    }
-    const formData = new FormData(form);
-    const toRemove = [];
-    formData.forEach((val, key, _index) => {
-      if (val instanceof File) {
-        toRemove.push(key);
-      }
-    });
-    toRemove.forEach((key) => formData.delete(key));
-    const params = new URLSearchParams();
-    const { inputsUnused, onlyHiddenInputs } = Array.from(form.elements).reduce(
-      (acc, input) => {
-        const { inputsUnused: inputsUnused2, onlyHiddenInputs: onlyHiddenInputs2 } = acc;
-        const key = input.name;
-        if (!key) {
-          return acc;
-        }
-        if (inputsUnused2[key] === void 0) {
-          inputsUnused2[key] = true;
-        }
-        if (onlyHiddenInputs2[key] === void 0) {
-          onlyHiddenInputs2[key] = true;
-        }
-        const isUsed = dom_default.private(input, PHX_HAS_FOCUSED) || dom_default.private(input, PHX_HAS_SUBMITTED);
-        const isHidden = input.type === "hidden";
-        inputsUnused2[key] = inputsUnused2[key] && !isUsed;
-        onlyHiddenInputs2[key] = onlyHiddenInputs2[key] && isHidden;
-        return acc;
-      },
-      { inputsUnused: {}, onlyHiddenInputs: {} }
-    );
-    for (const [key, val] of formData.entries()) {
-      if (onlyNames.length === 0 || onlyNames.indexOf(key) >= 0) {
-        const isUnused = inputsUnused[key];
-        const hidden = onlyHiddenInputs[key];
-        if (isUnused && !(submitter && submitter.name == key) && !hidden) {
-          params.append(prependFormDataKey(key, "_unused_"), "");
-        }
-        if (typeof val === "string") {
-          params.append(key, val);
-        }
-      }
-    }
-    if (submitter && injectedElement) {
-      submitter.parentElement.removeChild(injectedElement);
-    }
-    return params.toString();
-  };
   var View = class _View {
     static closestView(el) {
       const liveViewEl = el.closest(PHX_VIEW_SELECTOR);
       return liveViewEl ? dom_default.private(liveViewEl, "view") : null;
     }
-    constructor(el, liveSocket2, parentView, flash, liveReferer) {
+    constructor(el, liveSocket2, parentView, flash = null, liveReferer = null) {
+      this.rendered = null;
       this.isDead = false;
       this.liveSocket = liveSocket2;
       this.flash = flash;
@@ -5760,7 +6219,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.el = el;
       const boundView = dom_default.private(this.el, "view");
       if (boundView !== void 0 && boundView.isDead !== true) {
-        logError(
+        this.logError(
+          "view.duplicate-binding",
           `The DOM element for this view has already been bound to a view.
 
         An element can only ever be associated with a single view!
@@ -5768,7 +6228,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         This could happen if you're accidentally trying to render your root layout more than once.
         Ensure that the template set on the LiveView is different than the root layout.
       `,
-          { view: boundView }
+          { view: boundView },
+          { attribution: "app" }
         );
         throw new Error("Cannot bind multiple views to the same DOM element.");
       }
@@ -5782,6 +6243,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.disconnectedTimer = null;
       this.pendingDiffs = [];
       this.pendingForms = /* @__PURE__ */ new Set();
+      this.activeUploaders = /* @__PURE__ */ new Set();
       this.redirect = false;
       this.href = null;
       this.joinCount = this.parent ? this.parent.joinCount - 1 : 0;
@@ -5807,7 +6269,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           params: this.connectParams(liveReferer),
           session: this.getSession(),
           static: this.getStatic(),
-          flash: this.flash,
+          flash: this.flash ?? void 0,
           sticky: this.el.hasAttribute(PHX_STICKY)
         };
       });
@@ -5825,13 +6287,15 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     connectParams(liveReferer) {
       const params = this.liveSocket.params(this.el);
-      const manifest = dom_default.all(document, `[${this.binding(PHX_TRACK_STATIC)}]`).map((node) => node.src || node.href).filter((url) => typeof url === "string");
+      const manifest = dom_default.all(document, `[${this.binding(PHX_TRACK_STATIC)}]`).map(
+        (node) => "src" in node && node.src || "href" in node && node.href
+      ).filter((url) => typeof url === "string");
       if (manifest.length > 0) {
         params["_track_static"] = manifest;
       }
       params["_mounts"] = this.joinCount;
       params["_mount_attempts"] = this.joinAttempts;
-      params["_live_referer"] = liveReferer;
+      params["_live_referer"] = liveReferer ?? void 0;
       this.joinAttempts++;
       return params;
     }
@@ -5847,15 +6311,18 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     destroy(callback2 = function() {
     }) {
+      js_default.dropFocus(this);
       this.destroyAllChildren();
       this.destroyPortalElements();
       this.destroyed = true;
+      this.activeUploaders.forEach((uploader) => uploader.cancel());
+      this.activeUploaders.clear();
       dom_default.deletePrivate(this.el, "view");
       delete this.root.children[this.id];
       if (this.parent) {
         delete this.root.children[this.parent.id][this.id];
       }
-      clearTimeout(this.loaderTimer);
+      this.loaderTimer != null && clearTimeout(this.loaderTimer);
       const onFinished = () => {
         callback2();
         for (const id in this.viewHooks) {
@@ -5863,7 +6330,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       };
       dom_default.markPhxChildDestroyed(this.el);
-      this.log("destroyed", () => ["the child has been removed from the parent"]);
+      this.log(
+        "destroyed",
+        () => ["the child has been removed from the parent"],
+        {
+          code: "view.child-destroyed"
+        }
+      );
       this.channel.leave().receive("ok", onFinished).receive("error", onFinished).receive("timeout", onFinished);
     }
     setContainerClasses(...classes) {
@@ -5877,7 +6350,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.el.classList.add(...classes);
     }
     showLoader(timeout) {
-      clearTimeout(this.loaderTimer);
+      this.loaderTimer != null && clearTimeout(this.loaderTimer);
       if (timeout) {
         this.loaderTimer = setTimeout(() => this.showLoader(), timeout);
       } else {
@@ -5895,8 +6368,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       );
     }
     hideLoader() {
-      clearTimeout(this.loaderTimer);
-      clearTimeout(this.disconnectedTimer);
+      this.loaderTimer != null && clearTimeout(this.loaderTimer);
+      this.disconnectedTimer != null && clearTimeout(this.disconnectedTimer);
       this.setContainerClasses(PHX_CONNECTED_CLASS);
       this.execAll(this.binding("connected"));
     }
@@ -5905,8 +6378,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         this.viewHooks[id].__reconnected();
       }
     }
-    log(kind, msgCallback) {
-      this.liveSocket.log(this, kind, msgCallback);
+    log(kind, msgCallback, diagnostic) {
+      this.liveSocket.log(this, kind, msgCallback, diagnostic);
+    }
+    logError(code, message, metadata, context = { attribution: "unknown" }) {
+      logError(code, message, metadata, {
+        viewId: this.id ?? this.el.id,
+        ...context
+      });
     }
     transition(time, onStart, onDone = function() {
     }) {
@@ -5926,17 +6405,27 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         );
       }
       if (isCid(phxTarget)) {
-        const targets = dom_default.findComponentNodeList(this.id, phxTarget, dom);
-        if (targets.length === 0) {
-          logError(`no component found matching phx-target of ${phxTarget}`);
+        const target = dom_default.findComponent(this.id, phxTarget, dom);
+        if (!target) {
+          this.logError(
+            "event.missing-component-target",
+            `no component found matching phx-target of ${phxTarget}`,
+            { target: phxTarget }
+          );
         } else {
-          callback2(this, parseInt(phxTarget));
+          callback2(
+            this,
+            typeof phxTarget === "number" ? phxTarget : parseInt(phxTarget)
+          );
         }
       } else {
         const targets = Array.from(dom.querySelectorAll(phxTarget));
         if (targets.length === 0) {
-          logError(
-            `nothing found matching the phx-target selector "${phxTarget}"`
+          this.logError(
+            "event.missing-selector-target",
+            `nothing found matching the phx-target selector "${phxTarget}"`,
+            { target: phxTarget },
+            { attribution: "app" }
           );
         }
         targets.forEach(
@@ -5945,7 +6434,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
     applyDiff(type, rawDiff, callback2) {
-      this.log(type, () => ["", clone(rawDiff)]);
+      const clonedDiff = clone(rawDiff);
+      this.log(type, () => ["received diff", clonedDiff], {
+        code: `view.diff-${type}`,
+        metadata: () => ({ diff: clonedDiff })
+      });
       const { diff, reply, events, title } = Rendered.extract(rawDiff);
       const ev = events.reduce(
         (acc, args) => {
@@ -5976,6 +6469,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       if (container) {
         const [tag, attrs] = container;
         this.el = dom_default.replaceRootContainer(this.el, tag, attrs);
+        dom_default.putPrivate(this.el, "view", this);
       }
       this.childJoins = 0;
       this.joinPending = true;
@@ -6004,7 +6498,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         CONSECUTIVE_RELOADS
       );
       this.applyDiff("mount", rendered, ({ diff, events }) => {
-        this.rendered = new Rendered(this.id, diff);
+        this.rendered = new Rendered(
+          this.id,
+          diff,
+          () => this.liveSocket.RenderingBuffer
+        );
         const [html, streams] = this.renderContainer(null, "join");
         this.dropPendingRefs();
         this.joinCount++;
@@ -6057,7 +6555,12 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
     attachTrueDocEl() {
-      this.el = dom_default.byId(this.id);
+      const el = dom_default.byId(this.id);
+      if (!el) {
+        throw new Error("unable to find root element for view");
+      }
+      this.el = el;
+      dom_default.putPrivate(this.el, "view", this);
       this.el.setAttribute(PHX_ROOT_ID, this.root.id);
     }
     // this is invoked for dead and live views, so we must filter by
@@ -6106,7 +6609,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       }
       this.attachTrueDocEl();
-      const patch = new DOMPatch(this, this.el, this.id, html, streams, null);
+      const patch = new DOMPatch(this, this.el, html, streams, null);
       patch.markPrunableContentForRemoval();
       this.performPatch(patch, false, true);
       this.joinNewChildren();
@@ -6129,7 +6632,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       const hook = this.getHook(fromEl);
       const isIgnored = hook && dom_default.isIgnored(fromEl, this.binding(PHX_UPDATE));
       if (hook && !fromEl.isEqualNode(toEl) && !(isIgnored && isEqualObj(fromEl.dataset, toEl.dataset))) {
-        hook.__beforeUpdate();
+        hook.__beforeUpdate(toEl);
         return hook;
       }
     }
@@ -6151,8 +6654,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       const removedEls = [];
       let phxChildrenAdded = false;
       const updatedHookIds = /* @__PURE__ */ new Set();
+      const newHookIds = /* @__PURE__ */ new Set();
       this.liveSocket.triggerDOM("onPatchStart", [patch.targetContainer]);
-      patch.after("added", (el) => {
+      patch.afterAdded((el) => {
         this.liveSocket.triggerDOM("onNodeAdded", [el]);
         const phxViewportTop = this.binding(PHX_VIEWPORT_TOP);
         const phxViewportBottom = this.binding(PHX_VIEWPORT_BOTTOM);
@@ -6162,32 +6666,47 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           this.maybeMounted(el);
         }
       });
-      patch.after("phxChildAdded", (el) => {
+      patch.afterPhxChildAdded((el) => {
         if (dom_default.isPhxSticky(el)) {
           this.liveSocket.joinRootViews();
         } else {
           phxChildrenAdded = true;
         }
       });
-      patch.before("updated", (fromEl, toEl) => {
+      const hookAttr = this.binding(PHX_HOOK);
+      const privateHookAttr = `data-phx-${PHX_HOOK}`;
+      patch.beforeUpdated((fromEl, toEl) => {
         const hook = this.triggerBeforeUpdateHook(fromEl, toEl);
         if (hook) {
-          updatedHookIds.add(fromEl.id);
+          if (fromEl.hasAttribute(hookAttr) && fromEl.getAttribute(hookAttr) !== toEl.getAttribute(hookAttr)) {
+            this.destroyHook(hook);
+            if (toEl.getAttribute(hookAttr)) {
+              newHookIds.add(toEl.id);
+            }
+          } else {
+            updatedHookIds.add(fromEl.id);
+          }
+        } else if (toEl.id && toEl.getAttribute && !this.getHook(fromEl)) {
+          if (toEl.getAttribute(hookAttr) || toEl.getAttribute(privateHookAttr)) {
+            newHookIds.add(toEl.id);
+          }
         }
         js_default.onBeforeElUpdated(fromEl, toEl);
       });
-      patch.after("updated", (el) => {
+      patch.afterUpdated((el) => {
         if (updatedHookIds.has(el.id)) {
-          this.getHook(el).__updated();
+          const hook = this.getHook(el);
+          hook && hook.__updated();
+        } else if (newHookIds.has(el.id)) {
+          this.maybeAddNewHook(el);
         }
       });
-      patch.after("discarded", (el) => {
+      patch.afterDiscarded((el) => {
         if (el.nodeType === Node.ELEMENT_NODE) {
           removedEls.push(el);
         }
       });
-      patch.after(
-        "transitionsDiscarded",
+      patch.afterTransitionsDiscarded(
         (els) => this.afterElementsRemoved(els, pruneCids)
       );
       patch.perform(isJoinPatch);
@@ -6229,8 +6748,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       const oldForms = this.root.formsForRecovery;
       const template = document.createElement("template");
       template.innerHTML = html;
+      if (!template.content.firstElementChild) {
+        return callback2();
+      }
       dom_default.all(template.content, `[${PHX_PORTAL}]`).forEach((portalTemplate) => {
-        template.content.firstElementChild.appendChild(
+        if (!(portalTemplate instanceof HTMLTemplateElement)) {
+          return;
+        }
+        template.content.firstElementChild?.appendChild(
           portalTemplate.content.firstElementChild
         );
       });
@@ -6238,8 +6763,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       rootEl.id = this.id;
       rootEl.setAttribute(PHX_ROOT_ID, this.root.id);
       rootEl.setAttribute(PHX_SESSION, this.getSession());
-      rootEl.setAttribute(PHX_STATIC, this.getStatic());
-      rootEl.setAttribute(PHX_PARENT_ID, this.parent ? this.parent.id : null);
+      rootEl.setAttribute(PHX_STATIC, this.getStatic() ?? "");
+      this.parent && rootEl.setAttribute(PHX_PARENT_ID, this.parent.id);
+      dom_default.putPrivate(rootEl, "view", this);
       const formsToRecover = (
         // we go over all forms in the new DOM; because this is only the HTML for the current
         // view, we can be sure that all forms are owned by this view:
@@ -6274,7 +6800,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       if (el.id === this.id) {
         return this;
       } else {
-        return this.children[el.getAttribute(PHX_PARENT_ID)]?.[el.id];
+        return this.children && this.children[el.getAttribute(PHX_PARENT_ID)]?.[el.id];
       }
     }
     destroyDescendent(id) {
@@ -6348,7 +6874,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       } else if (!isEmpty(diff)) {
         this.liveSocket.time("full patch complete", () => {
           const [html, streams] = this.renderContainer(diff, "update");
-          const patch = new DOMPatch(this, this.el, this.id, html, streams, null);
+          const patch = new DOMPatch(this, this.el, html, streams, null);
           phxChildrenAdded = this.performPatch(patch, true);
         });
       }
@@ -6370,7 +6896,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       if (isEmpty(diff))
         return false;
       const { buffer: html, streams } = this.rendered.componentToString(cid);
-      const patch = new DOMPatch(this, this.el, this.id, html, streams, cid);
+      const patch = new DOMPatch(this, this.el, html, streams, cid);
       const childrenAdded = this.performPatch(patch, true);
       return childrenAdded;
     }
@@ -6386,7 +6912,12 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         if (ViewHook.deadHook(el)) {
           return;
         }
-        const hook = dom_default.getCustomElHook(el) || logError(`no hook found for custom element: ${el.id}`);
+        const hook = dom_default.getCustomElHook(el) || this.logError(
+          "hook.custom-element-missing-hook",
+          `no hook found for custom element: ${el.id}`,
+          { el },
+          { attribution: "app" }
+        );
         this.viewHooks[hookElId] = hook;
         hook.__attachView(this);
         return hook;
@@ -6400,9 +6931,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         const hookDefinition = this.liveSocket.getHookDefinition(hookName);
         if (hookDefinition) {
           if (!el.id) {
-            logError(
+            this.logError(
+              "hook.missing-id",
               `no DOM ID for hook "${hookName}". Hooks require a unique ID on each element.`,
-              el
+              { el, hookName },
+              { attribution: "app" }
             );
             return;
           }
@@ -6413,21 +6946,36 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             } else if (typeof hookDefinition === "object" && hookDefinition !== null) {
               hookInstance = new ViewHook(this, el, hookDefinition);
             } else {
-              logError(
+              this.logError(
+                "hook.invalid-definition",
                 `Invalid hook definition for "${hookName}". Expected a class extending ViewHook or an object definition.`,
-                el
+                { el, hookName },
+                { attribution: "app" }
               );
               return;
             }
           } catch (e) {
             const errorMessage = e instanceof Error ? e.message : String(e);
-            logError(`Failed to create hook "${hookName}": ${errorMessage}`, el);
+            this.logError(
+              "hook.creation-failed",
+              `Failed to create hook "${hookName}": ${errorMessage}`,
+              { el, hookName, error: e },
+              { attribution: "app" }
+            );
             return;
           }
           this.viewHooks[ViewHook.elementID(hookInstance.el)] = hookInstance;
           return hookInstance;
         } else if (hookName !== null) {
-          logError(`unknown hook found for "${hookName}"`, el);
+          this.logError(
+            "hook.unknown",
+            `unknown hook found for "${hookName}"`,
+            {
+              el,
+              hookName
+            },
+            { attribution: "app" }
+          );
         }
       }
     }
@@ -6451,7 +6999,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     onChannel(event, cb) {
       this.liveSocket.onChannel(this.channel, event, (resp) => {
-        if (this.isJoinPending()) {
+        if (this.isJoinPending() && !["redirect", "live_redirect"].includes(event)) {
           if (this.joinCount > 1) {
             this.pendingJoinOps.push(() => cb(resp));
           } else {
@@ -6500,21 +7048,18 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     expandURL(to2) {
       return to2.startsWith("/") ? `${window.location.protocol}//${window.location.host}${to2}` : to2;
     }
-    /**
-     * @param {{to: string, flash?: string, reloadToken?: string}} redirect
-     */
-    onRedirect({ to: to2, flash, reloadToken }) {
-      this.liveSocket.redirect(to2, flash, reloadToken);
+    onRedirect({
+      to: to2,
+      flash,
+      reloadToken
+    }) {
+      this.liveSocket.redirect(to2, flash ?? null, reloadToken ?? null);
     }
     isDestroyed() {
       return this.destroyed;
     }
     joinDead() {
       this.isDead = true;
-    }
-    joinPush() {
-      this.joinPush = this.joinPush || this.channel.join();
-      return this.joinPush;
     }
     join(callback2) {
       this.showLoader(this.liveSocket.loaderTimeout);
@@ -6537,21 +7082,42 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       });
     }
     onJoinError(resp) {
+      if (resp.events) {
+        this.liveSocket.dispatchEvents(resp.events);
+      }
       if (resp.reason === "reload") {
-        this.log("error", () => [
-          `failed mount with ${resp.status}. Falling back to page reload`,
-          resp
-        ]);
+        this.log(
+          "error",
+          () => [
+            `failed mount with ${resp.status}. Falling back to page reload`,
+            resp
+          ],
+          {
+            code: "view.mount-reload",
+            level: "error",
+            metadata: () => ({ status: resp.status }),
+            context: { attribution: "app" }
+          }
+        );
         this.onRedirect({
           to: this.liveSocket.main.href,
           reloadToken: resp.token
         });
         return;
       } else if (resp.reason === "unauthorized" || resp.reason === "stale") {
-        this.log("error", () => [
-          "unauthorized live_redirect. Falling back to page request",
-          resp
-        ]);
+        this.log(
+          "error",
+          () => [
+            "unauthorized live_redirect. Falling back to page request",
+            resp
+          ],
+          {
+            code: "view.unauthorized-live-redirect",
+            level: "error",
+            metadata: () => ({ reason: resp.reason }),
+            context: { attribution: "app" }
+          }
+        );
         this.onRedirect({ to: this.liveSocket.main.href, flash: this.flash });
         return;
       }
@@ -6565,7 +7131,18 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       if (resp.live_redirect) {
         return this.onLiveRedirect(resp.live_redirect);
       }
-      this.log("error", () => ["unable to join", resp]);
+      const timedOut = resp.reason === "timeout";
+      const attribution = timedOut || resp.source === "transport" ? "network" : "app";
+      this.log(
+        "error",
+        () => [timedOut ? "join timed out" : "unable to join", resp],
+        {
+          code: timedOut ? "view.join-timeout" : "view.join-failed",
+          level: "error",
+          metadata: () => timedOut ? { error: resp } : { response: resp },
+          context: { attribution }
+        }
+      );
       if (this.isMain()) {
         this.displayError(
           [PHX_LOADING_CLASS, PHX_ERROR_CLASS, PHX_SERVER_ERROR_CLASS],
@@ -6580,11 +7157,23 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             [PHX_LOADING_CLASS, PHX_ERROR_CLASS, PHX_SERVER_ERROR_CLASS],
             { unstructuredError: resp, errorKind: "server" }
           );
-          this.log("error", () => [
-            `giving up trying to mount after ${MAX_CHILD_JOIN_ATTEMPTS} tries`,
-            resp
-          ]);
+          this.log(
+            "error",
+            () => [
+              `giving up trying to mount after ${MAX_CHILD_JOIN_ATTEMPTS} tries`,
+              resp
+            ],
+            {
+              code: "view.mount-attempts-exhausted",
+              level: "error",
+              metadata: () => ({
+                attempts: MAX_CHILD_JOIN_ATTEMPTS,
+                response: resp
+              })
+            }
+          );
           this.destroy();
+          return;
         }
         const trueChildEl = dom_default.byId(this.el.id);
         if (trueChildEl) {
@@ -6615,7 +7204,12 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     onError(reason) {
       this.onClose(reason);
       if (this.liveSocket.isConnected()) {
-        this.log("error", () => ["view crashed", reason]);
+        this.log("error", () => ["view crashed", reason], {
+          code: "view.crashed",
+          level: "error",
+          metadata: () => ({ reason }),
+          context: { attribution: "app" }
+        });
       }
       if (!this.liveSocket.isUnloaded()) {
         if (this.liveSocket.isConnected()) {
@@ -6664,7 +7258,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     pushWithReply(refGenerator, event, payload) {
       if (!this.isConnected()) {
-        return Promise.reject(new Error("no connection"));
+        return Promise.resolve({
+          type: "error",
+          error: "no connection",
+          context: { attribution: "network" }
+        });
       }
       const [ref, [el], opts] = refGenerator ? refGenerator({ payload }) : [null, [], {}];
       const oldJoinCount = this.joinCount;
@@ -6679,7 +7277,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       if (typeof payload.cid !== "number") {
         delete payload.cid;
       }
-      return new Promise((resolve2, reject) => {
+      return new Promise((resolve2) => {
         this.wrapPush(() => this.channel.push(event, payload, PUSH_TIMEOUT), {
           ok: (resp) => {
             if (ref !== null) {
@@ -6696,7 +7294,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
                 this.onLiveRedirect(resp.live_redirect);
               }
               onLoadingDone();
-              resolve2({ resp, reply: hookReply, ref });
+              resolve2({ type: "ok", resp, reply: hookReply, ref });
             };
             if (resp.diff) {
               this.liveSocket.requestDOMUpdate(() => {
@@ -6715,14 +7313,36 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               finish(null);
             }
           },
-          error: (reason) => reject(new Error(`failed with reason: ${JSON.stringify(reason)}`)),
+          error: (reason) => {
+            onLoadingDone();
+            resolve2({
+              type: "error",
+              error: `failed with reason: ${JSON.stringify(reason)}`,
+              context: {
+                attribution: "app"
+              }
+            });
+          },
           timeout: () => {
-            reject(new Error("timeout"));
+            onLoadingDone();
+            resolve2({
+              type: "error",
+              error: "push timeout",
+              context: { attribution: "network" }
+            });
             if (this.joinCount === oldJoinCount) {
               this.liveSocket.reloadWithJitter(this, () => {
-                this.log("timeout", () => [
-                  "received timeout while communicating with server. Falling back to hard refresh for recovery"
-                ]);
+                this.log(
+                  "timeout",
+                  () => [
+                    "received timeout while communicating with server. Falling back to hard refresh for recovery"
+                  ],
+                  {
+                    code: "view.push-timeout-recovery",
+                    level: "error",
+                    context: { attribution: "network" }
+                  }
+                );
               });
             }
           }
@@ -6754,7 +7374,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     undoElRef(el, ref, phxEvent) {
       const elRef = new ElementRef(el);
       elRef.maybeUndo(ref, phxEvent, (clonedTree) => {
-        const patch = new DOMPatch(this, el, this.id, clonedTree, [], null, {
+        const patch = new DOMPatch(this, el, clonedTree, /* @__PURE__ */ new Set(), null, {
           undoRef: ref
         });
         const phxChildrenAdded = this.performPatch(patch, true);
@@ -6786,10 +7406,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
         el.setAttribute(PHX_REF_SRC, this.refSrc());
         if (loading) {
-          el.setAttribute(PHX_REF_LOADING, newRef);
+          el.setAttribute(PHX_REF_LOADING, newRef.toString());
         }
         if (lock) {
-          el.setAttribute(PHX_REF_LOCK, newRef);
+          el.setAttribute(PHX_REF_LOCK, newRef.toString());
         }
         if (!loading || opts.submitter && !(el === opts.submitter || el === opts.form)) {
           continue;
@@ -6810,14 +7430,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         const disableText = el.getAttribute(disableWith);
         if (disableText !== null) {
           if (!el.getAttribute(PHX_DISABLE_WITH_RESTORE)) {
-            el.setAttribute(PHX_DISABLE_WITH_RESTORE, el.textContent);
+            el.setAttribute(PHX_DISABLE_WITH_RESTORE, el.textContent || "");
           }
           if (disableText !== "") {
             el.textContent = disableText;
           }
           el.setAttribute(
             PHX_DISABLED,
-            el.getAttribute(PHX_DISABLED) || el.disabled
+            el.getAttribute(PHX_DISABLED) || ("disabled" in el ? String(el.disabled) : "")
           );
           el.setAttribute("disabled", "");
         }
@@ -6843,7 +7463,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               lockEl.setAttribute(PHX_REF_LOCK, newRef);
               lockEl.setAttribute(PHX_REF_SRC, this.refSrc());
               lockEl.addEventListener(
-                `phx:lock-stop:${newRef}`,
+                `phx:undo-lock:${newRef}`,
                 () => resolve2(detail),
                 { once: true }
               );
@@ -6891,7 +7511,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       const cidOrSelector = opts.target || target.getAttribute(this.binding("target"));
       if (isCid(cidOrSelector)) {
-        return parseInt(cidOrSelector);
+        return typeof cidOrSelector === "number" ? cidOrSelector : parseInt(cidOrSelector);
       } else if (targetCtx && (cidOrSelector !== null || opts.target)) {
         return this.closestComponentID(targetCtx);
       } else {
@@ -6923,11 +7543,18 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     pushHookEvent(el, targetCtx, event, payload) {
       if (!this.isConnected()) {
-        this.log("hook", () => [
-          "unable to push hook event. LiveView not connected",
-          event,
-          payload
-        ]);
+        this.log(
+          "hook",
+          () => [
+            "unable to push hook event. LiveView not connected",
+            { event, payload }
+          ],
+          {
+            code: "hook.push-disconnected",
+            metadata: () => ({ event, payload }),
+            context: { attribution: "network" }
+          }
+        );
         return Promise.reject(
           new Error("unable to push hook event. LiveView not connected")
         );
@@ -6941,7 +7568,12 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         event,
         value: payload,
         cid: this.closestComponentID(targetCtx)
-      }).then(({ resp: _resp, reply, ref }) => ({ reply, ref }));
+      }).then((result) => {
+        if (result.type === "error") {
+          throw new Error("Failed to push hook event: " + result.error);
+        }
+        return { reply: result.reply, ref: result.ref };
+      });
     }
     extractMeta(el, meta, value) {
       const prefix = this.binding("value-");
@@ -6973,6 +7605,78 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       return meta;
     }
+    serializeForm(form, opts = {}, onlyNames = []) {
+      const { submitter } = opts;
+      let injectedElement;
+      if (submitter && submitter.name) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        const formId = submitter.getAttribute("form");
+        if (formId) {
+          input.setAttribute("form", formId);
+        }
+        input.name = submitter.name;
+        input.value = submitter.value;
+        submitter.parentElement.insertBefore(input, submitter);
+        injectedElement = input;
+      }
+      const formData = new FormData(form);
+      const toRemove = [];
+      formData.forEach((val, key, _index) => {
+        if (val instanceof File) {
+          toRemove.push(key);
+        }
+      });
+      toRemove.forEach((key) => formData.delete(key));
+      const params = new URLSearchParams();
+      const { inputsUnused, onlyHiddenInputs } = Array.from(form.elements).reduce(
+        (acc, input) => {
+          if (!dom_default.isFormAssociated(input)) {
+            return acc;
+          }
+          const { inputsUnused: inputsUnused2, onlyHiddenInputs: onlyHiddenInputs2 } = acc;
+          const key = input.name;
+          if (!key) {
+            return acc;
+          }
+          if (inputsUnused2[key] === void 0) {
+            inputsUnused2[key] = true;
+          }
+          if (onlyHiddenInputs2[key] === void 0) {
+            onlyHiddenInputs2[key] = true;
+          }
+          const inputSkipUnusedField = input.hasAttribute(
+            this.binding(PHX_NO_UNUSED_FIELD)
+          );
+          const isUsed = dom_default.private(input, PHX_HAS_FOCUSED) || dom_default.private(input, PHX_HAS_SUBMITTED) || inputSkipUnusedField;
+          const isHidden = input.type === "hidden";
+          inputsUnused2[key] = inputsUnused2[key] && !isUsed;
+          onlyHiddenInputs2[key] = onlyHiddenInputs2[key] && isHidden;
+          return acc;
+        },
+        { inputsUnused: {}, onlyHiddenInputs: {} }
+      );
+      const formSkipUnusedFields = form.hasAttribute(
+        this.binding(PHX_NO_UNUSED_FIELD)
+      );
+      for (const [key, val] of formData.entries()) {
+        if (onlyNames.length === 0 || onlyNames.indexOf(key) >= 0) {
+          const isUnused = inputsUnused[key];
+          const hidden = onlyHiddenInputs[key];
+          const skipUnusedCheck = formSkipUnusedFields;
+          if (!skipUnusedCheck && isUnused && !(submitter && submitter.name == key) && !hidden) {
+            params.append(prependFormDataKey(key, "_unused_"), "");
+          }
+          if (typeof val === "string") {
+            params.append(key, val);
+          }
+        }
+      }
+      if (submitter && injectedElement) {
+        submitter.parentElement.removeChild(injectedElement);
+      }
+      return params.toString();
+    }
     pushEvent(type, el, targetCtx, phxEvent, meta, opts = {}, onReply) {
       this.pushWithReply(
         (maybePayload) => this.putRef([{ el, loading: true, lock: true }], phxEvent, type, {
@@ -6986,7 +7690,23 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           value: this.extractMeta(el, meta, opts.value),
           cid: this.targetComponentID(el, targetCtx, opts)
         }
-      ).then(({ reply }) => onReply && onReply(reply)).catch((error) => logError("Failed to push event", error));
+      ).then((result) => {
+        if (result.type === "ok") {
+          onReply && onReply(result.reply);
+        } else {
+          this.logError(
+            "event.push-failed",
+            "Failed to push event",
+            {
+              error: result.error,
+              type,
+              phxEvent,
+              el
+            },
+            result.context
+          );
+        }
+      });
     }
     pushFileProgress(fileEl, entryRef, progress, onReply = function() {
     }) {
@@ -6997,7 +7717,18 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           entry_ref: entryRef,
           progress,
           cid: view.targetComponentID(fileEl.form, targetCtx)
-        }).then(() => onReply()).catch((error) => logError("Failed to push file progress", error));
+        }).then((result) => {
+          if (result.type === "ok") {
+            onReply();
+          } else {
+            view.logError(
+              "upload.progress-push-failed",
+              "Failed to push file progress",
+              { error: result.error, fileEl, entryRef, progress },
+              result.context
+            );
+          }
+        });
       });
     }
     pushInput(inputEl, targetCtx, forceCid, phxEvent, opts, callback2) {
@@ -7024,9 +7755,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         serializeOpts.submitter = inputEl;
       }
       if (inputEl.getAttribute(this.binding("change"))) {
-        formData = serializeForm(inputEl.form, serializeOpts, [inputEl.name]);
+        formData = this.serializeForm(inputEl.form, serializeOpts, [
+          inputEl.name
+        ]);
       } else {
-        formData = serializeForm(inputEl.form, serializeOpts);
+        formData = this.serializeForm(inputEl.form, serializeOpts);
       }
       if (dom_default.isUploadInput(inputEl) && inputEl.files && inputEl.files.length > 0) {
         LiveUploader.trackFiles(inputEl, Array.from(inputEl.files));
@@ -7047,30 +7780,43 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         uploads,
         cid
       };
-      this.pushWithReply(refGenerator, "event", event).then(({ resp }) => {
-        if (dom_default.isUploadInput(inputEl) && dom_default.isAutoUpload(inputEl)) {
-          ElementRef.onUnlock(inputEl, () => {
-            if (LiveUploader.filesAwaitingPreflight(inputEl).length > 0) {
-              const [ref, _els] = refGenerator();
-              this.undoRefs(ref, phxEvent, [inputEl.form]);
-              this.uploadFiles(
-                inputEl.form,
-                phxEvent,
-                targetCtx,
-                ref,
-                cid,
-                (_uploads) => {
-                  callback2 && callback2(resp);
-                  this.triggerAwaitingSubmit(inputEl.form, phxEvent);
-                  this.undoRefs(ref, phxEvent);
-                }
-              );
-            }
-          });
+      this.pushWithReply(refGenerator, "event", event).then((result) => {
+        if (result.type === "ok") {
+          if (dom_default.isUploadInput(inputEl) && dom_default.isAutoUpload(inputEl)) {
+            ElementRef.onUnlock(inputEl, () => {
+              if (LiveUploader.filesAwaitingPreflight(inputEl).length > 0) {
+                const [ref, _els] = refGenerator();
+                this.undoRefs(ref, phxEvent, [inputEl.form]);
+                this.uploadFiles(
+                  inputEl.form,
+                  phxEvent,
+                  targetCtx,
+                  ref,
+                  cid,
+                  (_uploads) => {
+                    callback2 && callback2(result.resp);
+                    this.triggerAwaitingSubmit(inputEl.form, phxEvent);
+                    this.undoRefs(ref, phxEvent);
+                  }
+                );
+              }
+            });
+          } else {
+            callback2 && callback2(result.resp);
+          }
         } else {
-          callback2 && callback2(resp);
+          this.logError(
+            "event.input-push-failed",
+            "Failed to push input event",
+            {
+              error: result.error,
+              inputEl,
+              phxEvent
+            },
+            result.context
+          );
         }
-      }).catch((error) => logError("Failed to push input event", error));
+      });
     }
     triggerAwaitingSubmit(formEl, phxEvent) {
       const awaitingSubmit = this.getScheduledSubmit(formEl);
@@ -7116,27 +7862,30 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         return el.hasAttribute(this.binding(PHX_DISABLE_WITH));
       };
       const filterButton = (el) => el.tagName == "BUTTON";
-      const filterInput = (el) => ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
+      const filterInput = (el) => ["INPUT", "TEXTAREA"].includes(el.tagName);
       const formElements = Array.from(formEl.elements);
       const disables = formElements.filter(filterDisables);
       const buttons = formElements.filter(filterButton).filter(filterIgnored);
       const inputs = formElements.filter(filterInput).filter(filterIgnored);
       buttons.forEach((button) => {
-        button.setAttribute(PHX_DISABLED, button.disabled);
+        button.setAttribute(PHX_DISABLED, button.disabled.toString());
         button.disabled = true;
       });
       inputs.forEach((input) => {
-        input.setAttribute(PHX_READONLY, input.readOnly);
+        input.setAttribute(PHX_READONLY, input.readOnly.toString());
         input.readOnly = true;
-        if (input.files) {
-          input.setAttribute(PHX_DISABLED, input.disabled);
+        if (input instanceof HTMLInputElement && input.files) {
+          input.setAttribute(PHX_DISABLED, input.disabled.toString());
           input.disabled = true;
         }
       });
       const formEls = disables.concat(buttons).concat(inputs).map((el) => {
         return { el, loading: true, lock: true };
       });
-      const els = [{ el: formEl, loading: true, lock: false }].concat(formEls).reverse();
+      const els = [
+        { el: formEl, loading: true, lock: false },
+        ...formEls
+      ].reverse();
       return this.putRef(els, phxEvent, "submit", opts);
     }
     pushFormSubmit(formEl, targetCtx, phxEvent, submitter, opts, onReply) {
@@ -7148,7 +7897,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       });
       dom_default.putPrivate(formEl, "submitter", submitter);
       const cid = this.targetComponentID(formEl, targetCtx);
-      if (LiveUploader.hasUploadsInProgress(formEl)) {
+      if (LiveUploader.hasUploadErrors(formEl)) {
+        return this.cancelSubmit(formEl, phxEvent);
+      } else if (LiveUploader.hasUploadsInProgress(formEl)) {
         const [ref, _els] = refGenerator();
         const push = () => this.pushFormSubmit(
           formEl,
@@ -7167,25 +7918,55 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             return this.undoRefs(ref, phxEvent);
           }
           const meta = this.extractMeta(formEl, {}, opts.value);
-          const formData = serializeForm(formEl, { submitter });
+          const formData = this.serializeForm(formEl, { submitter });
           this.pushWithReply(proxyRefGen, "event", {
             type: "form",
             event: phxEvent,
             value: formData,
             meta,
             cid
-          }).then(({ resp }) => onReply(resp)).catch((error) => logError("Failed to push form submit", error));
+          }).then((result) => {
+            if (result.type === "ok") {
+              onReply(result.resp);
+            } else {
+              this.logError(
+                "event.submit-push-failed",
+                "Failed to push form submit",
+                {
+                  error: result.error,
+                  phxEvent,
+                  formEl
+                },
+                result.context
+              );
+            }
+          });
         });
       } else if (!(formEl.hasAttribute(PHX_REF_SRC) && formEl.classList.contains("phx-submit-loading"))) {
         const meta = this.extractMeta(formEl, {}, opts.value);
-        const formData = serializeForm(formEl, { submitter });
+        const formData = this.serializeForm(formEl, { submitter });
         this.pushWithReply(refGenerator, "event", {
           type: "form",
           event: phxEvent,
           value: formData,
           meta,
           cid
-        }).then(({ resp }) => onReply(resp)).catch((error) => logError("Failed to push form submit", error));
+        }).then((result) => {
+          if (result.type === "ok") {
+            onReply(result.resp);
+          } else {
+            this.logError(
+              "event.submit-push-failed",
+              "Failed to push form submit",
+              {
+                error: result.error,
+                phxEvent,
+                formEl
+              },
+              result.context
+            );
+          }
+        });
       }
     }
     uploadFiles(formEl, phxEvent, targetCtx, ref, cid, onComplete) {
@@ -7194,13 +7975,16 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       let numFileInputsInProgress = inputEls.length;
       inputEls.forEach((inputEl) => {
         const uploader = new LiveUploader(inputEl, this, () => {
+          this.activeUploaders.delete(uploader);
           numFileInputsInProgress--;
           if (numFileInputsInProgress === 0) {
             onComplete();
           }
         });
+        this.activeUploaders.add(uploader);
         const entries = uploader.entries().map((entry) => entry.toPreflightPayload());
         if (entries.length === 0) {
+          this.activeUploaders.delete(uploader);
           numFileInputsInProgress--;
           return;
         }
@@ -7209,35 +7993,56 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           entries,
           cid: this.targetComponentID(inputEl.form, targetCtx)
         };
-        this.log("upload", () => ["sending preflight request", payload]);
-        this.pushWithReply(null, "allow_upload", payload).then(({ resp }) => {
-          this.log("upload", () => ["got preflight response", resp]);
-          uploader.entries().forEach((entry) => {
-            if (resp.entries && !resp.entries[entry.ref]) {
-              this.handleFailedEntryPreflight(
-                entry.ref,
-                "failed preflight",
-                uploader
-              );
-            }
-          });
-          if (resp.error || Object.keys(resp.entries).length === 0) {
-            this.undoRefs(ref, phxEvent);
-            const errors = resp.error || [];
-            errors.map(([entry_ref, reason]) => {
-              this.handleFailedEntryPreflight(entry_ref, reason, uploader);
+        this.log("upload", () => ["sending preflight request", payload], {
+          code: "upload.preflight-request",
+          metadata: () => ({ payload })
+        });
+        this.pushWithReply(null, "allow_upload", payload).then((result) => {
+          if (result.type === "ok") {
+            this.log("upload", () => ["got preflight response", result.resp], {
+              code: "upload.preflight-response",
+              metadata: () => ({ response: result.resp })
             });
-          } else {
-            const onError = (callback2) => {
-              this.channel.onError(() => {
-                if (this.joinCount === joinCountAtUpload) {
-                  callback2();
-                }
+            uploader.entries().forEach((entry) => {
+              if (result.resp.entries && !result.resp.entries[entry.ref]) {
+                this.handleFailedEntryPreflight(
+                  entry.ref,
+                  "failed preflight",
+                  uploader
+                );
+              }
+            });
+            if (result.resp.error || Object.keys(result.resp.entries).length === 0) {
+              this.undoRefs(ref, phxEvent);
+              const errors = result.resp.error || [];
+              errors.map(([entry_ref, reason]) => {
+                this.handleFailedEntryPreflight(entry_ref, reason, uploader);
               });
-            };
-            uploader.initAdapterUpload(resp, onError, this.liveSocket);
+              this.activeUploaders.delete(uploader);
+            } else {
+              const onError = (callback2) => {
+                this.channel.onError(() => {
+                  if (this.joinCount === joinCountAtUpload) {
+                    callback2();
+                  }
+                });
+              };
+              uploader.initAdapterUpload(result.resp, onError, this.liveSocket);
+            }
+          } else {
+            this.activeUploaders.delete(uploader);
+            this.logError(
+              "upload.push-failed",
+              "Failed to push upload",
+              {
+                error: result.error,
+                phxEvent,
+                formEl
+              },
+              result.context
+            );
           }
-        }).catch((error) => logError("Failed to push upload", error));
+        });
       });
     }
     handleFailedEntryPreflight(uploadRef, reason, uploader) {
@@ -7249,7 +8054,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       } else {
         uploader.entries().map((entry) => entry.cancel());
       }
-      this.log("upload", () => [`error for entry ${uploadRef}`, reason]);
+      this.log("upload", () => [`error for entry ${uploadRef}`, reason], {
+        code: "upload.preflight-rejected",
+        metadata: () => ({ uploadRef, reason })
+      });
     }
     dispatchUploads(targetCtx, name, filesOrBlobs) {
       const targetElement = this.targetCtxElement(targetCtx) || this.el;
@@ -7257,9 +8065,19 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         (el) => el.name === name
       );
       if (inputs.length === 0) {
-        logError(`no live file inputs found matching the name "${name}"`);
+        this.logError(
+          "upload.input-not-found",
+          `no live file inputs found matching the name "${name}"`,
+          { name },
+          { attribution: "app" }
+        );
       } else if (inputs.length > 1) {
-        logError(`duplicate live file inputs found matching the name "${name}"`);
+        this.logError(
+          "upload.duplicate-input",
+          `duplicate live file inputs found matching the name "${name}"`,
+          { name, inputs },
+          { attribution: "app" }
+        );
       } else {
         dom_default.dispatchEvent(inputs[0], PHX_TRACK_UPLOADS, {
           detail: { files: filesOrBlobs }
@@ -7268,7 +8086,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     targetCtxElement(targetCtx) {
       if (isCid(targetCtx)) {
-        const [target] = dom_default.findComponentNodeList(this.id, targetCtx);
+        const target = dom_default.findComponent(this.id, targetCtx);
         return target;
       } else if (targetCtx) {
         return targetCtx;
@@ -7281,7 +8099,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       const phxTarget = newForm.getAttribute(this.binding("target")) || newForm;
       const phxEvent = newForm.getAttribute(this.binding(PHX_AUTO_RECOVER)) || newForm.getAttribute(this.binding("change"));
       const inputs = Array.from(oldForm.elements).filter(
-        (el) => dom_default.isFormInput(el) && el.name && !el.hasAttribute(phxChange)
+        (el) => dom_default.isFormAssociated(el) && el.name && !el.hasAttribute(phxChange)
       );
       if (inputs.length === 0) {
         callback2();
@@ -7327,14 +8145,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         null,
         "click"
       ) : null;
-      const fallback = () => this.liveSocket.redirect(window.location.href);
+      const fallback = () => this.liveSocket.redirect(window.location.href, null, null);
       const url = href.startsWith("/") ? `${location.protocol}//${location.host}${href}` : href;
-      this.pushWithReply(refGen, "live_patch", { url }).then(
-        ({ resp }) => {
+      this.pushWithReply(refGen, "live_patch", { url }).then((result) => {
+        if (result.type === "ok") {
           this.liveSocket.requestDOMUpdate(() => {
-            if (resp.link_redirect) {
+            if (result.resp.link_redirect) {
               this.liveSocket.replaceMain(href, null, callback2, linkRef);
-            } else if (resp.redirect) {
+            } else if (result.resp.redirect) {
               return;
             } else {
               if (this.liveSocket.commitPendingLink(linkRef)) {
@@ -7344,9 +8162,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               callback2 && callback2(linkRef);
             }
           });
-        },
-        ({ error: _error, timeout: _timeout }) => fallback()
-      );
+        } else {
+          fallback();
+        }
+      });
     }
     getFormsForRecovery() {
       if (this.joinCount === 0) {
@@ -7356,14 +8175,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       return dom_default.all(
         document,
         `#${CSS.escape(this.id)} form[${phxChange}], [${PHX_TELEPORTED_REF}="${CSS.escape(this.id)}"] form[${phxChange}]`
-      ).filter((form) => form.id).filter((form) => form.elements.length > 0).filter(
+      ).filter((form) => form instanceof HTMLFormElement).filter((form) => form.id).filter((form) => form.elements.length > 0).filter(
         (form) => form.getAttribute(this.binding(PHX_AUTO_RECOVER)) !== "ignore"
       ).map((form) => {
         const clonedForm = form.cloneNode(true);
-        morphdom_esm_default(clonedForm, form, {
+        index_default(clonedForm, form, {
           onBeforeElUpdated: (fromEl, toEl) => {
             dom_default.copyPrivates(fromEl, toEl);
-            if (fromEl.getAttribute("form") === form.id) {
+            if (fromEl.getAttribute("form") === form.id && fromEl.parentNode) {
               fromEl.parentNode.removeChild(fromEl);
               return false;
             }
@@ -7374,11 +8193,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           `[form="${CSS.escape(form.id)}"]`
         );
         Array.from(externalElements).forEach((el) => {
-          const clonedEl = (
-            /** @type {HTMLElement} */
-            el.cloneNode(true)
-          );
-          morphdom_esm_default(clonedEl, el);
+          const clonedEl = el.cloneNode(true);
+          index_default(clonedEl, el);
           dom_default.copyPrivates(clonedEl, el);
           clonedEl.removeAttribute("form");
           clonedForm.appendChild(clonedEl);
@@ -7391,29 +8207,44 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     maybePushComponentsDestroyed(destroyedCIDs) {
       let willDestroyCIDs = destroyedCIDs.filter((cid) => {
-        return dom_default.findComponentNodeList(this.id, cid).length === 0;
+        return dom_default.findComponent(this.id, cid) === null;
       });
-      const onError = (error) => {
+      const onError = (result, cids) => {
         if (!this.isDestroyed()) {
-          logError("Failed to push components destroyed", error);
+          this.logError(
+            "component.destroy-push-failed",
+            "Failed to push components destroyed",
+            { error: result.error, cids },
+            result.context
+          );
         }
       };
       if (willDestroyCIDs.length > 0) {
         willDestroyCIDs.forEach((cid) => this.rendered.resetRender(cid));
-        this.pushWithReply(null, "cids_will_destroy", { cids: willDestroyCIDs }).then(() => {
-          this.liveSocket.requestDOMUpdate(() => {
-            let completelyDestroyCIDs = willDestroyCIDs.filter((cid) => {
-              return dom_default.findComponentNodeList(this.id, cid).length === 0;
+        this.pushWithReply(null, "cids_will_destroy", {
+          cids: willDestroyCIDs
+        }).then((result) => {
+          if (result.type === "ok") {
+            this.liveSocket.requestDOMUpdate(() => {
+              let completelyDestroyCIDs = willDestroyCIDs.filter((cid) => {
+                return dom_default.findComponent(this.id, cid) === null;
+              });
+              if (completelyDestroyCIDs.length > 0) {
+                this.pushWithReply(null, "cids_destroyed", {
+                  cids: completelyDestroyCIDs
+                }).then((result2) => {
+                  if (result2.type === "ok") {
+                    this.rendered.pruneCIDs(result2.resp.cids);
+                  } else {
+                    onError(result2, completelyDestroyCIDs);
+                  }
+                });
+              }
             });
-            if (completelyDestroyCIDs.length > 0) {
-              this.pushWithReply(null, "cids_destroyed", {
-                cids: completelyDestroyCIDs
-              }).then(({ resp }) => {
-                this.rendered.pruneCIDs(resp.cids);
-              }).catch(onError);
-            }
-          });
-        }).catch(onError);
+          } else {
+            onError(result, willDestroyCIDs);
+          }
+        });
       }
     }
     ownsElement(el) {
@@ -7424,7 +8255,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       dom_default.putPrivate(form, PHX_HAS_SUBMITTED, true);
       const inputs = Array.from(form.elements);
       inputs.forEach((input) => dom_default.putPrivate(input, PHX_HAS_SUBMITTED, true));
-      this.liveSocket.blurActiveElement(this);
+      this.liveSocket.blurActiveElement();
       this.pushFormSubmit(form, targetCtx, phxEvent, submitter, opts, () => {
         this.liveSocket.restorePreviouslyActiveFocus();
       });
@@ -7450,9 +8281,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
   };
+  var BUFFERS = Object.freeze({ RenderingBuffer, ReportingBuffer });
   var LiveSocket = class {
+    /**
+     * Creates a new LiveSocket instance.
+     */
     constructor(url, phxSocket, opts = {}) {
       this.unloaded = false;
+      this.buffers = BUFFERS;
       if (!phxSocket || phxSocket.constructor.name === "Object") {
         throw new Error(`
       a phoenix Socket must be provided as the second argument to the LiveSocket constructor. For example:
@@ -7464,7 +8300,6 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       this.socket = new phxSocket(url, opts);
       this.bindingPrefix = opts.bindingPrefix || BINDING_PREFIX;
-      this.opts = opts;
       this.params = closure2(opts.params || {});
       this.viewLogger = opts.viewLogger;
       this.metadataCallbacks = opts.metadata || {};
@@ -7481,6 +8316,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.currentLocation = clone(window.location);
       this.hooks = opts.hooks || {};
       this.uploaders = opts.uploaders || {};
+      this.RenderingBuffer = RenderingBuffer;
       this.loaderTimeout = opts.loaderTimeout || LOADER_TIMEOUT;
       this.disconnectedTimeout = opts.disconnectedTimeout || DISCONNECTED_TIMEOUT;
       this.reloadWithJitterTimer = null;
@@ -7493,6 +8329,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.boundTopLevelEvents = false;
       this.boundEventNames = /* @__PURE__ */ new Set();
       this.blockPhxChangeWhileComposing = opts.blockPhxChangeWhileComposing || false;
+      this.cascadePhxRemoveOnNavigation = opts.cascadePhxRemoveOnNavigation ?? true;
       this.serverCloseRef = null;
       this.domCallbacks = Object.assign(
         {
@@ -7505,7 +8342,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         opts.dom || {}
       );
       this.transitions = new TransitionSet();
-      this.currentHistoryPosition = parseInt(this.sessionStorage.getItem(PHX_LV_HISTORY_POSITION)) || 0;
+      this.currentHistoryPosition = parseInt(this.sessionStorage.getItem(PHX_LV_HISTORY_POSITION) || "0") || 0;
       window.addEventListener("pagehide", (_e) => {
         this.unloaded = true;
       });
@@ -7516,49 +8353,121 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       });
     }
     // public
+    /**
+     * Returns the version of the LiveView client.
+     */
     version() {
-      return "1.1.28";
+      return "1.2.10";
     }
+    /**
+     * Returns true if profiling is enabled. See {@link enableProfiling} and {@link disableProfiling}.
+     */
     isProfileEnabled() {
       return this.sessionStorage.getItem(PHX_LV_PROFILE) === "true";
     }
+    /**
+     * Installs a rendered buffer: what the renderer writes rendered HTML through.
+     *
+     * A buffer can observe or annotate the output — for example to mark which
+     * HEEx function components re-rendered, for a debugging overlay. See
+     * {@link RenderingBuffer} for the protocol a buffer implements.
+     *
+     * It applies to views that are already mounted as well as to views that join
+     * later, and nothing is re-rendered to install it: it sees each part of the
+     * page the next time a patch renders that part, so a buffer that annotates
+     * the output leaves whatever is already in the DOM untouched until then.
+     *
+     *     const previous = liveSocket.attachDebugBuffer(MyBuffer)
+     *
+     * @param bufferClass - a class extending {@link RenderingBuffer}.
+     * @returns The class installed until now, to restore it with.
+     *
+     * @internal
+     */
+    attachDebugBuffer(bufferClass) {
+      const current = this.RenderingBuffer;
+      this.RenderingBuffer = bufferClass;
+      return current;
+    }
+    /**
+     * Returns true if debugging is enabled. See {@link enableDebug} and {@link disableDebug}.
+     */
     isDebugEnabled() {
       return this.sessionStorage.getItem(PHX_LV_DEBUG) === "true";
     }
+    /**
+     * Returns true if debugging is disabled. See {@link enableDebug} and {@link disableDebug}.
+     */
     isDebugDisabled() {
       return this.sessionStorage.getItem(PHX_LV_DEBUG) === "false";
     }
+    /**
+     * Enables debugging.
+     *
+     * When debugging is enabled, the LiveView client will log debug information to the console.
+     * See [Debugging client events](https://phoenix-live-view.hexdocs.pm/js-interop.html#debugging-client-events) for more information.
+     */
     enableDebug() {
       this.sessionStorage.setItem(PHX_LV_DEBUG, "true");
     }
+    /**
+     * Enables profiling.
+     *
+     * When profiling is enabled, the LiveView client will log profiling information to the console.
+     */
     enableProfiling() {
       this.sessionStorage.setItem(PHX_LV_PROFILE, "true");
     }
+    /**
+     * Disables debugging.
+     */
     disableDebug() {
       this.sessionStorage.setItem(PHX_LV_DEBUG, "false");
     }
+    /**
+     * Disables profiling.
+     */
     disableProfiling() {
       this.sessionStorage.removeItem(PHX_LV_PROFILE);
     }
+    /**
+     * Enables latency simulation.
+     *
+     * When latency simulation is enabled, the LiveView client will add a delay to requests and responses from the server.
+     * See [Simulating Latency](https://phoenix-live-view.hexdocs.pm/js-interop.html#simulating-latency) for more information.
+     */
     enableLatencySim(upperBoundMs) {
       this.enableDebug();
       console.log(
         "latency simulator enabled for the duration of this browser session. Call disableLatencySim() to disable"
       );
-      this.sessionStorage.setItem(PHX_LV_LATENCY_SIM, upperBoundMs);
+      this.sessionStorage.setItem(PHX_LV_LATENCY_SIM, upperBoundMs.toString());
     }
+    /**
+     * Disables latency simulation.
+     */
     disableLatencySim() {
       this.sessionStorage.removeItem(PHX_LV_LATENCY_SIM);
     }
+    /**
+     * Returns the current latency simulation upper bound.
+     */
     getLatencySim() {
       const str = this.sessionStorage.getItem(PHX_LV_LATENCY_SIM);
       return str ? parseInt(str) : null;
     }
+    /**
+     * Returns the Phoenix Socket instance.
+     */
     getSocket() {
       return this.socket;
     }
+    /**
+     * Connects to the LiveView server.
+     */
     connect() {
-      if (window.location.hostname === "localhost" && !this.isDebugDisabled()) {
+      const host = window.location.hostname.toLowerCase();
+      if ((host === "localhost" || host.endsWith(".localhost")) && !this.isDebugDisabled()) {
         this.enableDebug();
       }
       const doConnect = () => {
@@ -7579,23 +8488,29 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         document.addEventListener("DOMContentLoaded", () => doConnect());
       }
     }
+    /**
+     * Disconnects from the LiveView server.
+     */
     disconnect(callback2) {
-      clearTimeout(this.reloadWithJitterTimer);
+      this.reloadWithJitterTimer != null && clearTimeout(this.reloadWithJitterTimer);
       if (this.serverCloseRef) {
-        this.socket.off(this.serverCloseRef);
+        this.socket.off([this.serverCloseRef]);
         this.serverCloseRef = null;
       }
       this.socket.disconnect(callback2);
     }
+    /**
+     * Can be used to replace the transport used by the underlying Phoenix Socket.
+     */
     replaceTransport(transport) {
-      clearTimeout(this.reloadWithJitterTimer);
+      this.reloadWithJitterTimer != null && clearTimeout(this.reloadWithJitterTimer);
       this.socket.replaceTransport(transport);
       this.connect();
     }
     /**
-     * @param {HTMLElement} el
-     * @param {string} encodedJS
-     * @param {string | null} [eventType]
+     * Executes an encoded JS command, targeting the given element.
+     *
+     * See [`Phoenix.LiveView.JS`](https://phoenix-live-view.hexdocs.pm/Phoenix.LiveView.JS.html) for more information.
      */
     execJS(el, encodedJS, eventType = null) {
       const e = new CustomEvent("phx:exec", { detail: { sourceElement: el } });
@@ -7605,26 +8520,31 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
      * Returns an object with methods to manipulate the DOM and execute JavaScript.
      * The applied changes integrate with server DOM patching.
      *
-     * @returns {import("./js_commands").LiveSocketJSCommands}
+     * See [JavaScript interoperability](https://phoenix-live-view.hexdocs.pm/js-interop.html) for more information.
      */
     js() {
       return js_commands_default(this, "js");
     }
     // private
+    /** @internal */
     unload() {
       if (this.unloaded) {
         return;
       }
       if (this.main && this.isConnected()) {
-        this.log(this.main, "socket", () => ["disconnect for page nav"]);
+        this.log(this.main, "socket", () => ["disconnect for page nav"], {
+          code: "socket.page-navigation-disconnect"
+        });
       }
       this.unloaded = true;
       this.destroyAllViews();
       this.disconnect();
     }
+    /** @internal */
     triggerDOM(kind, args) {
       this.domCallbacks[kind](...args);
     }
+    /** @internal */
     time(name, func) {
       if (!this.isProfileEnabled() || !console.time) {
         return func();
@@ -7634,25 +8554,45 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       console.timeEnd(name);
       return result;
     }
-    log(view, kind, msgCallback) {
+    /** @internal */
+    log(view, kind, msgCallback, diagnostic) {
+      const debugEnabled = this.isDebugEnabled();
+      const level = diagnostic?.level ?? "debug";
+      const emitDiagnostic = !!diagnostic && (level !== "debug" || debugEnabled);
+      if (!this.viewLogger && !debugEnabled && !emitDiagnostic) {
+        return;
+      }
+      const [message, obj] = msgCallback();
       if (this.viewLogger) {
-        const [msg, obj] = msgCallback();
-        this.viewLogger(view, kind, msg, obj);
-      } else if (this.isDebugEnabled()) {
-        const [msg, obj] = msgCallback();
-        debug(view, kind, msg, obj);
+        this.viewLogger(view, kind, message, obj);
+      } else if (debugEnabled) {
+        debug(view, kind, message, obj);
+      }
+      if (emitDiagnostic && diagnostic) {
+        dispatchDiagnostic({
+          level,
+          code: diagnostic.code,
+          message,
+          viewId: view.id,
+          metadata: diagnostic.metadata?.(),
+          ...diagnostic.context || { attribution: "unknown" }
+        });
       }
     }
+    /** @internal */
     requestDOMUpdate(callback2) {
       this.transitions.after(callback2);
     }
+    /** @internal */
     asyncTransition(promise) {
       this.transitions.addAsyncTransition(promise);
     }
+    /** @internal */
     transition(time, onStart, onDone = function() {
     }) {
       this.transitions.addTransition(time, onStart, onDone);
     }
+    /** @internal */
     onChannel(channel, event, cb) {
       channel.on(event, (data) => {
         const latency = this.getLatencySim();
@@ -7663,8 +8603,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       });
     }
+    /** @internal */
     reloadWithJitter(view, log) {
-      clearTimeout(this.reloadWithJitterTimer);
+      this.reloadWithJitterTimer != null && clearTimeout(this.reloadWithJitterTimer);
       this.disconnect();
       const minMs = this.reloadJitterMin;
       const maxMs = this.reloadJitterMax;
@@ -7684,30 +8625,48 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           return;
         }
         view.destroy();
-        log ? log() : this.log(view, "join", () => [
-          `encountered ${tries} consecutive reloads`
-        ]);
+        log ? log() : this.log(
+          view,
+          "join",
+          () => [`encountered ${tries} consecutive reloads`],
+          {
+            code: "view.reload-attempts",
+            metadata: () => ({ tries })
+          }
+        );
         if (tries >= this.maxReloads) {
-          this.log(view, "join", () => [
-            `exceeded ${this.maxReloads} consecutive reloads. Entering failsafe mode`
-          ]);
+          this.log(
+            view,
+            "join",
+            () => [
+              `exceeded ${this.maxReloads} consecutive reloads. Entering failsafe mode`
+            ],
+            {
+              code: "view.reload-failsafe",
+              level: "error",
+              metadata: () => ({ tries, maxReloads: this.maxReloads })
+            }
+          );
         }
-        if (this.hasPendingLink()) {
-          window.location = this.pendingLink;
+        if (this.pendingLink !== null) {
+          window.location.href = this.pendingLink;
         } else {
           window.location.reload();
         }
       }, afterMs);
     }
+    /** @internal */
     getHookDefinition(name) {
       if (!name) {
         return;
       }
       return this.maybeInternalHook(name) || this.hooks[name] || this.maybeRuntimeHook(name);
     }
+    /** @internal */
     maybeInternalHook(name) {
       return name && name.startsWith("Phoenix.") && hooks_default[name.split(".")[1]];
     }
+    /** @internal */
     maybeRuntimeHook(name) {
       const runtimeHook = document.querySelector(
         `script[${PHX_RUNTIME_HOOK}="${CSS.escape(name)}"]`
@@ -7717,7 +8676,15 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       let callbacks = window[`phx_hook_${name}`];
       if (!callbacks || typeof callbacks !== "function") {
-        logError("a runtime hook must be a function", runtimeHook);
+        logError(
+          "hook.runtime-not-function",
+          "a runtime hook must be a function",
+          {
+            runtimeHook,
+            name
+          },
+          { attribution: "app" }
+        );
         return;
       }
       const hookDefiniton = callbacks();
@@ -7725,25 +8692,33 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         return hookDefiniton;
       }
       logError(
+        "hook.runtime-invalid-return",
         "runtime hook must return an object with hook callbacks or an instance of ViewHook",
-        runtimeHook
+        { runtimeHook, name },
+        { attribution: "app" }
       );
     }
+    /** @internal */
     isUnloaded() {
       return this.unloaded;
     }
+    /** @internal */
     isConnected() {
       return this.socket.isConnected();
     }
+    /** @internal */
     getBindingPrefix() {
       return this.bindingPrefix;
     }
+    /** @internal */
     binding(kind) {
       return `${this.getBindingPrefix()}${kind}`;
     }
+    /** @internal */
     channel(topic, params) {
       return this.socket.channel(topic, params);
     }
+    /** @internal */
     joinDeadView() {
       const body = document.body;
       if (body && !this.isPhxView(body) && !this.isPhxView(document.firstElementChild)) {
@@ -7759,6 +8734,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         });
       }
     }
+    /** @internal */
     joinRootViews() {
       let rootsFound = false;
       dom_default.all(
@@ -7780,6 +8756,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       );
       return rootsFound;
     }
+    /** @internal */
     redirect(to2, flash, reloadToken) {
       if (reloadToken) {
         browser_default.setCookie(PHX_RELOAD_STATUS, reloadToken, 60);
@@ -7787,24 +8764,33 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.unload();
       browser_default.redirect(to2, flash);
     }
+    /** @internal */
     replaceMain(href, flash, callback2 = null, linkRef = this.setPendingLink(href)) {
+      if (!this.main) {
+        return;
+      }
       const liveReferer = this.currentLocation.href;
       this.outgoingMainEl = this.outgoingMainEl || this.main.el;
       const stickies = dom_default.findPhxSticky(document) || [];
-      const removeEls = dom_default.all(
+      const removeEls = this.phxRemoveElementsForNavigation(
         this.outgoingMainEl,
-        `[${this.binding("remove")}]`
-      ).filter((el) => !dom_default.isChildOfAny(el, stickies));
+        stickies
+      );
       const newMainEl = dom_default.cloneNode(this.outgoingMainEl, "");
-      this.main.showLoader(this.loaderTimeout);
-      this.main.destroy();
+      const oldMainView = this.main;
+      oldMainView.showLoader(this.loaderTimeout);
+      oldMainView.destroy();
       this.main = this.newRootView(newMainEl, flash, liveReferer);
       this.main.setRedirect(href);
-      this.transitionRemoves(removeEls);
+      this.transitionRemoves(removeEls, oldMainView);
       this.main.join((joinCount, onDone) => {
         if (joinCount === 1 && this.commitPendingLink(linkRef)) {
           this.requestDOMUpdate(() => {
-            removeEls.forEach((el) => el.remove());
+            removeEls.forEach((el) => {
+              if (!el.isSameNode(this.outgoingMainEl)) {
+                el.remove();
+              }
+            });
             stickies.forEach((el) => newMainEl.appendChild(el));
             this.outgoingMainEl.replaceWith(newMainEl);
             this.outgoingMainEl = null;
@@ -7814,7 +8800,15 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       });
     }
-    transitionRemoves(elements, callback2) {
+    phxRemoveElementsForNavigation(mainEl, stickies = dom_default.findPhxSticky(document) || []) {
+      const removeSelector = `[${this.binding("remove")}]`;
+      const removeEls = this.cascadePhxRemoveOnNavigation ? [mainEl, ...dom_default.all(mainEl, removeSelector)] : [mainEl];
+      return removeEls.filter(
+        (el) => el.matches(removeSelector) && !dom_default.isChildOfAny(el, stickies)
+      );
+    }
+    /** @internal */
+    transitionRemoves(elements, view, callback2) {
       const removeAttr = this.binding("remove");
       const silenceEvents = (e) => {
         e.preventDefault();
@@ -7824,7 +8818,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         for (const event of this.boundEventNames) {
           el.addEventListener(event, silenceEvents, true);
         }
-        this.execJS(el, el.getAttribute(removeAttr), "remove");
+        const e = new CustomEvent("phx:exec", { detail: { sourceElement: el } });
+        js_default.exec(e, "remove", el.getAttribute(removeAttr), view, el);
       });
       this.requestDOMUpdate(() => {
         elements.forEach((el) => {
@@ -7835,19 +8830,22 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         callback2 && callback2();
       });
     }
+    /** @internal */
     isPhxView(el) {
       return el.getAttribute && el.getAttribute(PHX_SESSION) !== null;
     }
+    /** @internal */
     newRootView(el, flash, liveReferer) {
       const view = new View(el, this, null, flash, liveReferer);
       this.roots[view.id] = view;
       return view;
     }
+    /** @internal */
     owner(childEl, callback2) {
       let view;
       const viewEl = dom_default.closestViewEl(childEl);
       if (viewEl) {
-        view = this.getViewByEl(viewEl);
+        view = dom_default.private(viewEl, "view");
       } else {
         if (!childEl.isConnected) {
           return null;
@@ -7856,9 +8854,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       return view && callback2 ? callback2(view) : view;
     }
+    /** @internal */
     withinOwners(childEl, callback2) {
       this.owner(childEl, (view) => callback2(view, childEl));
     }
+    /** @internal */
     getViewByEl(el) {
       const rootId = el.getAttribute(PHX_ROOT_ID);
       return maybe(
@@ -7866,9 +8866,11 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         (root) => root.getDescendentByEl(el)
       );
     }
+    /** @internal */
     getRootById(id) {
       return this.roots[id];
     }
+    /** @internal */
     destroyAllViews() {
       for (const id in this.roots) {
         this.roots[id].destroy();
@@ -7876,6 +8878,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       this.main = null;
     }
+    /** @internal */
     destroyViewByEl(el) {
       const root = this.getRootById(el.getAttribute(PHX_ROOT_ID));
       if (root && root.id === el.id) {
@@ -7885,38 +8888,42 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         root.destroyDescendent(el.id);
       }
     }
+    /** @internal */
     getActiveElement() {
       return document.activeElement;
     }
+    /** @internal */
     dropActiveElement(view) {
       if (this.prevActive && view.ownsElement(this.prevActive)) {
         this.prevActive = null;
       }
     }
+    /** @internal */
     restorePreviouslyActiveFocus() {
       if (this.prevActive && this.prevActive !== document.body && this.prevActive instanceof HTMLElement) {
         this.prevActive.focus();
       }
     }
+    /** @internal */
     blurActiveElement() {
       this.prevActive = this.getActiveElement();
       if (this.prevActive !== document.body && this.prevActive instanceof HTMLElement) {
         this.prevActive.blur();
       }
     }
-    /**
-     * @param {{dead?: boolean}} [options={}]
-     */
+    /** @internal */
     bindTopLevelEvents({ dead } = {}) {
+      if (this.serverCloseRef === null) {
+        this.serverCloseRef = this.socket.onClose((event) => {
+          if (event && event.code === 1e3 && this.main) {
+            return this.reloadWithJitter(this.main);
+          }
+        });
+      }
       if (this.boundTopLevelEvents) {
         return;
       }
       this.boundTopLevelEvents = true;
-      this.serverCloseRef = this.socket.onClose((event) => {
-        if (event && event.code === 1e3 && this.main) {
-          return this.reloadWithJitter(this.main);
-        }
-      });
       document.body.addEventListener("click", function() {
       });
       window.addEventListener(
@@ -7953,7 +8960,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         { blur: "focusout", focus: "focusin" },
         (e, type, view, targetEl, phxEvent, phxTarget) => {
           if (!phxTarget) {
-            const data = { key: e.key, ...this.eventMeta(type, e, targetEl) };
+            const data = { ...this.eventMeta(type, e, targetEl) };
             js_default.exec(e, type, phxEvent, view, targetEl, ["push", { data }]);
           }
         }
@@ -7968,41 +8975,58 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       );
       this.on("dragover", (e) => e.preventDefault());
+      const dropTargetDragDepths = /* @__PURE__ */ new WeakMap();
       this.on("dragenter", (e) => {
-        const dropzone = closestPhxBinding(
-          e.target,
-          this.binding(PHX_DROP_TARGET)
-        );
+        let target = e.target && dom_default.elementFromTarget(e.target);
+        if (!target) {
+          return;
+        }
+        const dropzone = closestPhxBinding(target, this.binding(PHX_DROP_TARGET));
         if (!dropzone || !(dropzone instanceof HTMLElement)) {
           return;
         }
         if (eventContainsFiles(e)) {
-          this.js().addClass(dropzone, PHX_DROP_TARGET_ACTIVE_CLASS);
+          const dragDepth = (dropTargetDragDepths.get(dropzone) || 0) + 1;
+          dropTargetDragDepths.set(dropzone, dragDepth);
+          if (dragDepth === 1) {
+            this.js().addClass(dropzone, PHX_DROP_TARGET_ACTIVE_CLASS);
+          }
         }
       });
       this.on("dragleave", (e) => {
-        const dropzone = closestPhxBinding(
-          e.target,
-          this.binding(PHX_DROP_TARGET)
-        );
+        let target = e.target && dom_default.elementFromTarget(e.target);
+        if (!target) {
+          return;
+        }
+        const dropzone = closestPhxBinding(target, this.binding(PHX_DROP_TARGET));
         if (!dropzone || !(dropzone instanceof HTMLElement)) {
           return;
         }
-        const rect = dropzone.getBoundingClientRect();
-        if (e.clientX <= rect.left || e.clientX >= rect.right || e.clientY <= rect.top || e.clientY >= rect.bottom) {
+        const dragDepth = dropTargetDragDepths.get(dropzone);
+        if (dragDepth === void 0) {
+          return;
+        } else if (dragDepth > 1) {
+          dropTargetDragDepths.set(dropzone, dragDepth - 1);
+        } else {
+          dropTargetDragDepths.delete(dropzone);
           this.js().removeClass(dropzone, PHX_DROP_TARGET_ACTIVE_CLASS);
         }
       });
       this.on("drop", (e) => {
+        let target = e.target && dom_default.elementFromTarget(e.target);
+        if (!target) {
+          return;
+        }
         e.preventDefault();
-        const dropzone = closestPhxBinding(
-          e.target,
-          this.binding(PHX_DROP_TARGET)
-        );
+        const dropzone = closestPhxBinding(target, this.binding(PHX_DROP_TARGET));
         if (!dropzone || !(dropzone instanceof HTMLElement)) {
           return;
         }
+        dropTargetDragDepths.delete(dropzone);
         this.js().removeClass(dropzone, PHX_DROP_TARGET_ACTIVE_CLASS);
+        if (!e.dataTransfer) {
+          return;
+        }
         const dropTargetId = dropzone.getAttribute(this.binding(PHX_DROP_TARGET));
         const dropTarget = dropTargetId && document.getElementById(dropTargetId);
         const files = Array.from(e.dataTransfer.files || []);
@@ -8013,7 +9037,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         dropTarget.dispatchEvent(new Event("input", { bubbles: true }));
       });
       this.on(PHX_TRACK_UPLOADS, (e) => {
-        const uploadTarget = e.target;
+        const uploadTarget = e.target && dom_default.elementFromTarget(e.target);
         if (!dom_default.isUploadInput(uploadTarget)) {
           return;
         }
@@ -8024,47 +9048,67 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         uploadTarget.dispatchEvent(new Event("input", { bubbles: true }));
       });
     }
+    /** @internal */
     eventMeta(eventName, e, targetEl) {
       const callback2 = this.metadataCallbacks[eventName];
       return callback2 ? callback2(e, targetEl) : {};
     }
+    /** @internal */
     setPendingLink(href) {
       this.linkRef++;
       this.pendingLink = href;
       this.resetReloadStatus();
       return this.linkRef;
     }
-    // anytime we are navigating or connecting, drop reload cookie in case
-    // we issue the cookie but the next request was interrupted and the server never dropped it
+    /**
+     * @internal
+     * anytime we are navigating or connecting, drop reload cookie in case
+     * we issue the cookie but the next request was interrupted and the server never dropped it
+     */
     resetReloadStatus() {
       browser_default.deleteCookie(PHX_RELOAD_STATUS);
     }
+    /** @internal */
     commitPendingLink(linkRef) {
       if (this.linkRef !== linkRef) {
         return false;
-      } else {
+      }
+      if (this.pendingLink !== null) {
         this.href = this.pendingLink;
         this.pendingLink = null;
-        return true;
       }
+      return true;
     }
+    /** @internal */
     getHref() {
       return this.href;
     }
+    /** @internal */
     hasPendingLink() {
       return !!this.pendingLink;
     }
+    /** @internal */
     bind(events, callback2) {
       for (const event in events) {
         const browserEventName = events[event];
         this.on(browserEventName, (e) => {
           const binding = this.binding(event);
           const windowBinding = this.binding(`window-${event}`);
-          const targetPhxEvent = e.target.getAttribute && e.target.getAttribute(binding);
+          const targetPhxEvent = e.target instanceof Element && e.target.getAttribute(binding);
+          if (!(e.target instanceof Element)) {
+            return;
+          }
           if (targetPhxEvent) {
             this.debounce(e.target, e, browserEventName, () => {
               this.withinOwners(e.target, (view) => {
-                callback2(e, event, view, e.target, targetPhxEvent, null);
+                callback2(
+                  e,
+                  event,
+                  view,
+                  e.target,
+                  targetPhxEvent,
+                  null
+                );
               });
             });
           } else {
@@ -8072,7 +9116,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               const phxEvent = el.getAttribute(windowBinding);
               this.debounce(el, e, browserEventName, () => {
                 this.withinOwners(el, (view) => {
-                  callback2(e, event, view, el, phxEvent, "window");
+                  callback2(
+                    e,
+                    event,
+                    view,
+                    el,
+                    phxEvent,
+                    "window"
+                  );
                 });
               });
             });
@@ -8080,23 +9131,31 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         });
       }
     }
+    /** @internal */
     bindClicks() {
       this.on("mousedown", (e) => this.clickStartedAtTarget = e.target);
-      this.bindClick("click", "click");
+      this.bindClick();
     }
-    bindClick(eventName, bindingName) {
-      const click = this.binding(bindingName);
+    /** @internal */
+    bindClick() {
+      const click = this.binding("click");
       window.addEventListener(
-        eventName,
+        "click",
         (e) => {
-          let target = null;
+          let target = e.target && dom_default.elementFromTarget(e.target);
+          if (!target) {
+            return;
+          }
           if (e.detail === 0)
-            this.clickStartedAtTarget = e.target;
-          const clickStartedAtTarget = this.clickStartedAtTarget || e.target;
-          target = closestPhxBinding(e.target, click);
+            this.clickStartedAtTarget = target;
+          const clickStartedAtTarget = this.clickStartedAtTarget || target;
+          target = closestPhxBinding(target, click);
           this.dispatchClickAway(e, clickStartedAtTarget);
           this.clickStartedAtTarget = null;
-          const phxEvent = target && target.getAttribute(click);
+          if (!target) {
+            return;
+          }
+          const phxEvent = target.getAttribute(click);
           if (!phxEvent) {
             if (dom_default.isNewPageClick(e, window.location)) {
               this.unload();
@@ -8121,6 +9180,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         false
       );
     }
+    /** @internal */
     dispatchClickAway(e, clickStartedAt) {
       const phxClickAway = this.binding("click-away");
       const portal = clickStartedAt.closest(`[${PHX_TELEPORTED_SRC}]`);
@@ -8151,6 +9211,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       });
     }
+    /** @internal */
     bindNav() {
       if (!browser_default.canPushState()) {
         return;
@@ -8160,7 +9221,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
       let scrollTimer = null;
       window.addEventListener("scroll", (_e) => {
-        clearTimeout(scrollTimer);
+        scrollTimer != null && clearTimeout(scrollTimer);
         scrollTimer = setTimeout(() => {
           browser_default.updateCurrentState(
             (state) => Object.assign(state, { scroll: window.scrollY })
@@ -8170,31 +9231,40 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       window.addEventListener(
         "popstate",
         (event) => {
-          if (!this.registerNewLocation(window.location)) {
+          if (!this.isNewLocation(window.location)) {
             return;
           }
           const { type, backType, id, scroll, position } = event.state || {};
           const href = window.location.href;
           const isForward = position > this.currentHistoryPosition;
           const navType = isForward ? type : backType || type;
+          const direction = isForward ? "forward" : "backward";
+          const detail = {
+            href,
+            patch: navType === "patch",
+            pop: true,
+            direction
+          };
+          if (!this.dispatchBeforeNavigate(detail)) {
+            if (isForward) {
+              history.back();
+            } else {
+              history.forward();
+            }
+            return;
+          }
+          this.registerNewLocation(window.location);
           this.currentHistoryPosition = position || 0;
           this.sessionStorage.setItem(
             PHX_LV_HISTORY_POSITION,
             this.currentHistoryPosition.toString()
           );
-          dom_default.dispatchEvent(window, "phx:navigate", {
-            detail: {
-              href,
-              patch: navType === "patch",
-              pop: true,
-              direction: isForward ? "forward" : "backward"
-            }
-          });
+          dom_default.dispatchEvent(window, "phx:navigate", { detail });
           this.requestDOMUpdate(() => {
             const callback2 = () => {
               this.maybeScroll(scroll);
             };
-            if (this.main.isConnected() && navType === "patch" && id === this.main.id) {
+            if (this.main && this.main.isConnected() && navType === "patch" && id === this.main.id) {
               this.main.pushLinkPatch(event, href, null, callback2);
             } else {
               this.replaceMain(href, null, callback2);
@@ -8206,37 +9276,64 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       window.addEventListener(
         "click",
         (e) => {
-          const target = closestPhxBinding(e.target, PHX_LIVE_LINK);
+          let el = e.target && dom_default.elementFromTarget(e.target);
+          if (!el) {
+            return;
+          }
+          const target = closestPhxBinding(
+            el,
+            PHX_LIVE_LINK
+          );
           const type = target && target.getAttribute(PHX_LIVE_LINK);
           if (!type || !this.isConnected() || !this.main || dom_default.wantsNewTab(e)) {
             return;
           }
           const href = target.href instanceof SVGAnimatedString ? target.href.baseVal : target.href;
           const linkState = target.getAttribute(PHX_LINK_STATE);
+          if (linkState !== "replace" && linkState !== "push") {
+            throw new Error(
+              `expected ${PHX_LINK_STATE} to be "replace" or "push", got: ${linkState}`
+            );
+          }
+          if (type !== "patch" && type !== "redirect") {
+            throw new Error(
+              `expected ${PHX_LIVE_LINK} to be "patch" or "redirect", got: ${type}`
+            );
+          }
           e.preventDefault();
           e.stopImmediatePropagation();
           if (this.pendingLink === href) {
             return;
           }
-          this.requestDOMUpdate(() => {
-            if (type === "patch") {
-              this.pushHistoryPatch(e, href, linkState, target);
-            } else if (type === "redirect") {
-              this.historyRedirect(e, href, linkState, null, target);
-            } else {
-              throw new Error(
-                `expected ${PHX_LIVE_LINK} to be "patch" or "redirect", got: ${type}`
-              );
-            }
-            const phxClick = target.getAttribute(this.binding("click"));
+          const detail = {
+            href,
+            patch: type === "patch",
+            pop: false,
+            direction: "forward"
+          };
+          const phxClick = target.getAttribute(this.binding("click"));
+          const execPhxClick = () => {
             if (phxClick) {
               this.requestDOMUpdate(() => this.execJS(target, phxClick, "click"));
             }
+          };
+          if (!this.dispatchBeforeNavigate(detail)) {
+            execPhxClick();
+            return;
+          }
+          this.requestDOMUpdate(() => {
+            if (type === "patch") {
+              this.pushHistoryPatch(e, href, linkState, target);
+            } else {
+              this.historyRedirect(e, href, linkState, null, target);
+            }
+            execPhxClick();
           });
         },
         false
       );
     }
+    /** @internal */
     maybeScroll(scroll) {
       if (typeof scroll === "number") {
         requestAnimationFrame(() => {
@@ -8244,19 +9341,27 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         });
       }
     }
+    /** @internal */
     dispatchEvent(event, payload = {}) {
       dom_default.dispatchEvent(window, `phx:${event}`, { detail: payload });
     }
+    /** @internal */
     dispatchEvents(events) {
       events.forEach(([event, payload]) => this.dispatchEvent(event, payload));
     }
+    /** @internal */
     withPageLoading(info, callback2) {
       dom_default.dispatchEvent(window, "phx:page-loading-start", { detail: info });
       const done = () => dom_default.dispatchEvent(window, "phx:page-loading-stop", { detail: info });
       return callback2 ? callback2(done) : done;
     }
+    /** @internal */
+    dispatchBeforeNavigate(detail) {
+      return dom_default.dispatchEvent(window, "phx:before-navigate", { detail });
+    }
+    /** @internal */
     pushHistoryPatch(e, href, linkState, targetEl) {
-      if (!this.isConnected() || !this.main.isMain()) {
+      if (!this.isConnected() || !(this.main && this.main.isMain())) {
         return browser_default.redirect(href);
       }
       this.withPageLoading({ to: href, kind: "patch" }, (done) => {
@@ -8266,6 +9371,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         });
       });
     }
+    /** @internal */
     historyPatch(href, linkState, linkRef = this.setPendingLink(href)) {
       if (!this.commitPendingLink(linkRef)) {
         return;
@@ -8290,12 +9396,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       });
       this.registerNewLocation(window.location);
     }
+    /** @internal */
     historyRedirect(e, href, linkState, flash, targetEl) {
       const clickLoading = targetEl && e.isTrusted && e.type !== "popstate";
       if (clickLoading) {
         targetEl.classList.add("phx-click-loading");
       }
-      if (!this.isConnected() || !this.main.isMain()) {
+      if (!this.isConnected() || !(this.main && this.main.isMain())) {
         return browser_default.redirect(href, flash);
       }
       if (/^\/$|^\/[^\/]+.*$/.test(href)) {
@@ -8337,26 +9444,38 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         });
       });
     }
+    /** @internal */
     registerNewLocation(newLocation) {
-      const { pathname, search } = this.currentLocation;
-      if (pathname + search === newLocation.pathname + newLocation.search) {
+      if (!this.isNewLocation(newLocation)) {
         return false;
       } else {
         this.currentLocation = clone(newLocation);
         return true;
       }
     }
+    /** @internal */
+    isNewLocation(newLocation) {
+      const { pathname, search } = this.currentLocation;
+      if (pathname + search === newLocation.pathname + newLocation.search) {
+        return false;
+      } else {
+        return true;
+      }
+    }
+    /** @internal */
     bindForms() {
       let iterations = 0;
       let externalFormSubmitted = false;
       this.on("submit", (e) => {
+        if (!(e.target instanceof HTMLFormElement))
+          return;
         const phxSubmit = e.target.getAttribute(this.binding("submit"));
         const phxChange = e.target.getAttribute(this.binding("change"));
         if (!externalFormSubmitted && phxChange && !phxSubmit) {
           externalFormSubmitted = true;
           e.preventDefault();
           this.withinOwners(e.target, (view) => {
-            view.disableForm(e.target);
+            view.disableForm(e.target, phxChange);
             window.requestAnimationFrame(() => {
               if (dom_default.isUnloadableFormSubmit(e)) {
                 this.unload();
@@ -8367,6 +9486,8 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       });
       this.on("submit", (e) => {
+        if (!(e.target instanceof HTMLFormElement))
+          return;
         const phxEvent = e.target.getAttribute(this.binding("submit"));
         if (!phxEvent) {
           if (dom_default.isUnloadableFormSubmit(e)) {
@@ -8375,7 +9496,6 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           return;
         }
         e.preventDefault();
-        e.target.disabled = true;
         this.withinOwners(e.target, (view) => {
           js_default.exec(e, "submit", phxEvent, view, e.target, [
             "push",
@@ -8385,7 +9505,10 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       });
       for (const type of ["change", "input"]) {
         this.on(type, (e) => {
-          if (e instanceof CustomEvent && (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) && e.target.form === void 0) {
+          if (!dom_default.isFormAssociated(e.target)) {
+            return;
+          }
+          if (e instanceof CustomEvent && e.target.form === void 0) {
             if (e.detail && e.detail.dispatcher) {
               throw new Error(
                 `dispatching a custom ${type} event is only supported on input elements inside a form`
@@ -8393,9 +9516,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
             }
             return;
           }
-          const phxChange = this.binding("change");
           const input = e.target;
-          if (this.blockPhxChangeWhileComposing && e.isComposing) {
+          const phxChange = this.binding("change");
+          if (this.blockPhxChangeWhileComposing && e instanceof InputEvent && e.isComposing) {
             const key = `composition-listener-${type}`;
             if (!dom_default.private(input, key)) {
               dom_default.putPrivate(input, key, true);
@@ -8435,7 +9558,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
               dom_default.putPrivate(input, PHX_HAS_FOCUSED, true);
               js_default.exec(e, "change", phxEvent, view, input, [
                 "push",
-                { _target: e.target.name, dispatcher }
+                { _target: input.name, dispatcher }
               ]);
             });
           });
@@ -8444,7 +9567,9 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       this.on("reset", (e) => {
         const form = e.target;
         dom_default.resetForm(form);
-        const input = Array.from(form.elements).find((el) => el.type === "reset");
+        const input = Array.from(form.elements).find(
+          (el) => "type" in el && el.type === "reset"
+        );
         if (input) {
           window.requestAnimationFrame(() => {
             input.dispatchEvent(
@@ -8454,6 +9579,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       });
     }
+    /** @internal */
     debounce(el, event, eventType, callback2) {
       if (eventType === "blur" || eventType === "focusout") {
         return callback2();
@@ -8478,11 +9604,13 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         );
       });
     }
+    /** @internal */
     silenceEvents(callback2) {
       this.silenced = true;
       callback2();
       this.silenced = false;
     }
+    /** @internal */
     on(event, callback2) {
       this.boundEventNames.add(event);
       window.addEventListener(event, (e) => {
@@ -8491,6 +9619,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         }
       });
     }
+    /** @internal */
     jsQuerySelectorAll(sourceEl, query, defaultQuery) {
       const all = this.domCallbacks.jsQuerySelectorAll;
       return all ? all(sourceEl, query, defaultQuery) : defaultQuery();
@@ -8550,7 +9679,6 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
   };
-  var LiveSocket2 = LiveSocket;
 
   // assets/js/app.js
   var import_topbar = __toESM(require_topbar());
@@ -13676,7 +14804,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     return DomPlatform;
   }
-  var Element = class {
+  var Element2 = class {
     static defaults = {};
     static defaultRoutes = void 0;
     x;
@@ -13937,7 +15065,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       rotation
     };
   }
-  var Scale = class _Scale extends Element {
+  var Scale = class _Scale extends Element2 {
     constructor(cfg) {
       super();
       this.id = cfg.id;
@@ -15174,7 +16302,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
   var Registry = class {
     constructor() {
       this.controllers = new TypedRegistry(DatasetController, "datasets", true);
-      this.elements = new TypedRegistry(Element, "elements");
+      this.elements = new TypedRegistry(Element2, "elements");
       this.plugins = new TypedRegistry(Object, "plugins");
       this.scales = new TypedRegistry(Scale, "scales");
       this._typedRegistries = [
@@ -16766,7 +17894,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       strokePathDirect(ctx, line, start, count);
     }
   }
-  var LineElement = class extends Element {
+  var LineElement = class extends Element2 {
     static id = "line";
     static defaults = {
       borderCapStyle: "butt",
@@ -16906,7 +18034,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     ], useFinalPosition);
     return Math.abs(pos - value) < options.radius + options.hitRadius;
   }
-  var PointElement = class extends Element {
+  var PointElement = class extends Element2 {
     static id = "point";
     parsed;
     skip;
@@ -16999,7 +18127,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     };
   };
   var itemsEqual = (a, b) => a !== null && b !== null && a.datasetIndex === b.datasetIndex && a.index === b.index;
-  var Legend = class extends Element {
+  var Legend = class extends Element2 {
     constructor(config) {
       super();
       this._added = false;
@@ -17536,7 +18664,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
       }
     }
   };
-  var Title = class extends Element {
+  var Title = class extends Element2 {
     constructor(config) {
       super();
       this.chart = config.chart;
@@ -17987,7 +19115,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     }
     return result;
   }
-  var Tooltip = class extends Element {
+  var Tooltip = class extends Element2 {
     static positioners = positioners;
     constructor(config) {
       super();
@@ -20252,6 +21380,14 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
           options: this.getChartOptions("Pass Rate (%)", 0, 100)
         });
       }
+      const scoreCanvas = this.el.querySelector("#score-chart");
+      if (scoreCanvas) {
+        this.charts.score = new Chart(scoreCanvas, {
+          type: "line",
+          data: { labels: [], datasets: [] },
+          options: this.getChartOptions("Score (%)", 0, 100)
+        });
+      }
       const costCanvas = this.el.querySelector("#cost-chart");
       if (costCanvas) {
         this.charts.cost = new Chart(costCanvas, {
@@ -20278,6 +21414,20 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         this.charts.passRate.data.datasets = passRateDatasets;
         this.charts.passRate.options.plugins.legend.display = viewMode === "by_provider";
         this.charts.passRate.update();
+      }
+      if (this.charts.score) {
+        const hasScore = viewMode === "overall" ? this.hasData(chartData.overall.scores) : this.hasProviderData(chartData.by_provider, "scores");
+        const scoreContainer = this.el.querySelector("#score-chart-container");
+        if (hasScore) {
+          scoreContainer.style.display = "block";
+          const scoreDatasets = this.buildScoreDatasets(chartData, viewMode);
+          this.charts.score.data.labels = labels;
+          this.charts.score.data.datasets = scoreDatasets;
+          this.charts.score.options.plugins.legend.display = viewMode === "by_provider";
+          this.charts.score.update();
+        } else {
+          scoreContainer.style.display = "none";
+        }
       }
       if (this.charts.cost) {
         const hasCost = viewMode === "overall" ? this.hasData(chartData.overall.costs) : this.hasProviderData(chartData.by_provider, "costs");
@@ -20493,6 +21643,37 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
         if (chart) chart.destroy();
       });
       this.charts = {};
+    },
+    buildScoreDatasets(chartData, viewMode) {
+      if (viewMode === "overall") {
+        return [{
+          label: "Average Score",
+          data: chartData.overall.scores,
+          borderColor: "#8b5cf6",
+          backgroundColor: "rgba(139, 92, 246, 0.1)",
+          tension: 0.3,
+          fill: true
+        }];
+      } else {
+        const colors2 = [
+          "#10b981",
+          "#3b82f6",
+          "#f59e0b",
+          "#ef4444",
+          "#8b5cf6",
+          "#ec4899",
+          "#14b8a6",
+          "#f97316"
+        ];
+        return Object.entries(chartData.by_provider || {}).map(([providerName, data], index) => ({
+          label: providerName,
+          data: data.scores,
+          borderColor: colors2[index % colors2.length],
+          backgroundColor: `${colors2[index % colors2.length]}33`,
+          tension: 0.3,
+          fill: false
+        }));
+      }
     }
   };
 
@@ -20518,8 +21699,23 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
     toggleFields(idx, testCaseId, type) {
       const suffix = testCaseId ? testCaseId + "-" + idx : idx;
       const jsonFields = document.getElementById("json-fields-" + suffix);
+      const deepCompareFields = document.getElementById("deep-compare-fields-" + suffix);
       const valueField = document.getElementById("value-field-" + suffix);
-      if (jsonFields && valueField) {
+      if (jsonFields && deepCompareFields && valueField) {
+        if (type === "json_field") {
+          jsonFields.style.display = "flex";
+          deepCompareFields.style.display = "none";
+          valueField.style.display = "none";
+        } else if (type === "json_deep_compare") {
+          jsonFields.style.display = "none";
+          deepCompareFields.style.display = "flex";
+          valueField.style.display = "none";
+        } else {
+          jsonFields.style.display = "none";
+          deepCompareFields.style.display = "none";
+          valueField.style.display = "flex";
+        }
+      } else if (jsonFields && valueField) {
         if (type === "json_field") {
           jsonFields.style.display = "flex";
           valueField.style.display = "none";
@@ -21064,7 +22260,7 @@ removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"
   var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
   var liveTran = document.querySelector("meta[name='live-transport']").getAttribute("content");
   var livePath = document.querySelector("meta[name='live-path']").getAttribute("content");
-  var liveSocket = new LiveSocket2(livePath, Socket, {
+  var liveSocket = new LiveSocket(livePath, Socket, {
     transport: liveTran === "longpoll" ? LongPoll : WebSocket,
     params: { _csrf_token: csrfToken },
     hooks: { AutoDismissFlash, EvolutionChart, AssertionTypeToggle, CopyToClipboard, CustomSelect, ActivityChart, TagInput, StepperInput }

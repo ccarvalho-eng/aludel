@@ -14,7 +14,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends build-essent
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 # Install Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
   && apt-get install -y --no-install-recommends nodejs \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 

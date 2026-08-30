@@ -14,7 +14,7 @@ env:
   MIX_ENV: test
   ELIXIR_VERSION: "1.19.5"
   OTP_VERSION: "28.4.1"
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
 
 jobs:
   test:

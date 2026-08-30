@@ -11,7 +11,7 @@ on:
 env:
   ELIXIR_VERSION: "1.19.5"
   OTP_VERSION: "28.4.1"
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
 
 permissions:
   contents: read
@@ -33,11 +33,28 @@ jobs:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Install dependencies
         run: mix deps.get
 
-      - name: Elixir security audit
-        run: mix deps.audit
+      - name: Root Elixir security audit
+        run: mix deps.audit && mix hex.audit
+
+      - name: Install standalone dependencies
+        working-directory: standalone
+        run: mix deps.get
+
+      - name: Standalone Elixir security audit
+        working-directory: standalone
+        run: mix hex.audit
+
+      - name: Frontend npm security audit
+        working-directory: assets
+        run: npm audit
 
       - name: Sobelow security scan
         run: |
