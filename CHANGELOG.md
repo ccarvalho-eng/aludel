@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-30
+
+### Added
+- Pluggable evaluation metrics and persisted structured execution artifacts
+- Reusable single-turn and multi-turn datasets with CSV and JSON imports, provenance, idempotent suite imports, filtering, deletion, and complete LiveView workflows
+- Rolling 7-day and 30-day dashboard comparisons with weighted quality, exact cost and latency efficiency, pass-rate stability, and bounded regression signals
+- Suite-scoped Pareto frontier analysis across quality, cost, and latency trade-offs
+- Arbitrary side-by-side prompt version comparisons
+- Failure-grounded prompt reflections with variable preservation, explicit human acceptance or dismissal, and immutable accepted versions
+
+### Changed
+- Prompt evolution now uses bounded, constant-count queries and reports efficiency and regression signals overall and by provider
+- Suite runs now persist exact cost and latency totals plus sample counts, including backfills and retry-safe recalculation
+- Updated Phoenix to 1.8.12, Phoenix LiveView to 1.2.10, Req to 0.7.3, and related transitive dependencies
+
 ## [0.4.2] - 2026-08-15
 
 ### Added
