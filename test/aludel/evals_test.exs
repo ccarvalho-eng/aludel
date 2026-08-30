@@ -635,6 +635,17 @@ defmodule Aludel.EvalsTest do
       assert {:ok, suite_run} = Evals.execute_suite(suite, version, provider)
       assert suite_run.passed == 1
       assert suite_run.failed == 0
+
+      assert [
+               %{
+                 "assertion_results" => [
+                   %{
+                     "reason" => "Output contains expected value",
+                     "metadata" => %{}
+                   }
+                 ]
+               }
+             ] = suite_run.results
     end
 
     test "evaluates not_contains assertion" do

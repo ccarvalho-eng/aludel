@@ -3,14 +3,7 @@ defmodule Aludel.Evals.AssertionParser do
   Parses and validates assertion payloads from suite editor forms.
   """
 
-  @valid_types [
-    "contains",
-    "not_contains",
-    "regex",
-    "exact_match",
-    "json_field",
-    "json_deep_compare"
-  ]
+  alias Aludel.Evals.Metric.Registry
 
   @type parse_mode :: :json | :visual
 
@@ -212,11 +205,12 @@ defmodule Aludel.Evals.AssertionParser do
 
   defp validate_assertion(assertion, idx) do
     type = Map.get(assertion, "type")
+    valid_types = Registry.types()
 
     cond do
-      type not in @valid_types ->
+      type not in valid_types ->
         {:error,
-         "Invalid assertion type at index #{idx}: #{inspect(type)}. Must be one of: #{Enum.join(@valid_types, ", ")}"}
+         "Invalid assertion type at index #{idx}: #{inspect(type)}. Must be one of: #{Enum.join(valid_types, ", ")}"}
 
       type == "json_field" ->
         validate_json_field_assertion(assertion, idx)
