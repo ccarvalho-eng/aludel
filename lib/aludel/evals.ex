@@ -34,6 +34,17 @@ defmodule Aludel.Evals do
   end
 
   @doc """
+  Lists evaluation suites for one prompt, ordered by name.
+  """
+  @spec list_suites_for_prompt(binary()) :: [Suite.t()]
+  def list_suites_for_prompt(prompt_id) do
+    Suite
+    |> where([suite], suite.prompt_id == ^prompt_id)
+    |> order_by([suite], asc: suite.name)
+    |> repo().all()
+  end
+
+  @doc """
   Lists all suites with their associated prompt preloaded.
   """
   @spec list_suites_with_prompt() :: [Suite.t()]

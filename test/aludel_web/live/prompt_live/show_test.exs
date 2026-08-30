@@ -151,7 +151,7 @@ defmodule Aludel.Web.PromptLive.ShowTest do
       refute has_element?(view, "#prompt-version-diff")
     end
 
-    test "does not offer a comparison for the oldest version", %{conn: conn} do
+    test "offers an arbitrary comparison for the oldest version", %{conn: conn} do
       prompt = prompt_fixture(%{name: "Oldest Prompt"})
       {:ok, oldest_version} = Prompts.create_prompt_version(prompt, "Original")
       {:ok, _latest_version} = Prompts.create_prompt_version(prompt, "Updated")
@@ -162,7 +162,30 @@ defmodule Aludel.Web.PromptLive.ShowTest do
       |> element("#prompt-version-#{oldest_version.id}")
       |> render_click()
 
-      refute has_element?(view, "#compare-version-button")
+      assert has_element?(view, "#compare-version-button", "Compare with v2")
+    end
+
+    test "compares arbitrary non-adjacent versions", %{conn: conn} do
+      prompt = prompt_fixture(%{name: "Long-lived Prompt"})
+      {:ok, v1} = Prompts.create_prompt_version(prompt, "Original {{name}}")
+      {:ok, _v2} = Prompts.create_prompt_version(prompt, "Middle {{name}}")
+      {:ok, _v3} = Prompts.create_prompt_version(prompt, "Latest {{name}} and {{topic}}")
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}")
+
+      view
+      |> form("#comparison-version-form", comparison: %{version_id: v1.id})
+      |> render_change()
+
+      assert has_element?(view, "#compare-version-button", "Compare with v1")
+
+      view
+      |> element("#compare-version-button")
+      |> render_click()
+
+      assert has_element?(view, "#prompt-version-diff", "v1 to v3")
+      assert has_element?(view, "#template-diff-lines [data-diff-kind='del']", "Original")
+      assert has_element?(view, "#template-diff-lines [data-diff-kind='ins']", "Latest")
     end
   end
 end

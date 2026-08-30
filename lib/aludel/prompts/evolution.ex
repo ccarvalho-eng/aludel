@@ -118,6 +118,7 @@ defmodule Aludel.Prompts.Evolution do
     |> join(:inner, [suite_run], provider in Provider, on: provider.id == suite_run.provider_id)
     |> where([suite_run], suite_run.prompt_version_id in ^version_ids)
     |> maybe_bound_runs(opts)
+    |> maybe_filter_suite(opts)
     |> select([suite_run, provider], %{
       prompt_version_id: suite_run.prompt_version_id,
       provider_id: suite_run.provider_id,
@@ -153,6 +154,16 @@ defmodule Aludel.Prompts.Evolution do
 
       _invalid ->
         raise ArgumentError, ":days must be a positive integer"
+    end
+  end
+
+  defp maybe_filter_suite(query, opts) do
+    case Keyword.get(opts, :suite_id) do
+      suite_id when is_binary(suite_id) and suite_id != "" ->
+        where(query, [suite_run], suite_run.suite_id == ^suite_id)
+
+      _suite_id ->
+        query
     end
   end
 

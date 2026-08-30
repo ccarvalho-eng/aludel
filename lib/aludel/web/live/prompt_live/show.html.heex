@@ -69,17 +69,39 @@
               Previous version: v{@version_comparison.previous_version.version}
             </p>
           </div>
-          <button
-            :if={@version_comparison && !@show_version_diff}
-            id="compare-version-button"
-            type="button"
-            phx-click="show_version_diff"
-            class={["button-secondary"]}
-            style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 13px;"
+          <div
+            :if={length(@prompt.versions) > 1}
+            style="display: flex; align-items: end; gap: 8px;"
           >
-            <.icon name="hero-arrows-right-left" class="size-4" />
-            Compare with v{@version_comparison.previous_version.version}
-          </button>
+            <form id="comparison-version-form" phx-change="select_comparison_version">
+              <label for="comparison-version" class="text-sm text-secondary">Compare against</label>
+              <select
+                id="comparison-version"
+                name="comparison[version_id]"
+                style="display: block; margin-top: 4px;"
+              >
+                <option
+                  :for={version <- @prompt.versions}
+                  :if={version.id != @selected_version_id}
+                  value={version.id}
+                  selected={version.id == @comparison_version_id}
+                >
+                  v{version.version}
+                </option>
+              </select>
+            </form>
+            <button
+              :if={@version_comparison && !@show_version_diff}
+              id="compare-version-button"
+              type="button"
+              phx-click="show_version_diff"
+              class={["button-secondary"]}
+              style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 13px;"
+            >
+              <.icon name="hero-arrows-right-left" class="size-4" />
+              Compare with v{@version_comparison.previous_version.version}
+            </button>
+          </div>
         </div>
 
         <% selected_version = Enum.find(@prompt.versions, &(&1.id == @selected_version_id)) %>
