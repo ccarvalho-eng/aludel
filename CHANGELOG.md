@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-08-30
+
+### Security
+- Updated the standalone dependency lock to Postgrex 0.22.4, Req 0.7.4, Mint 1.9.3, and Tesla 1.21.2, including compatible Finch and DBConnection updates
+- Extended automated dependency scanning to cover the standalone Mix project and frontend npm dependencies
+
+### Changed
+- Moved CI and container asset builds from end-of-life Node.js 20 to Node.js 24 LTS
+- Rebuilt committed frontend bundles from the current sources
+
 ## [0.5.0] - 2026-08-30
 
 ### Added
