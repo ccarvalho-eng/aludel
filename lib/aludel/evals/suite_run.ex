@@ -18,7 +18,18 @@ defmodule Aludel.Evals.SuiteRun do
   @type t :: %__MODULE__{}
 
   @required_fields ~w(suite_id prompt_version_id provider_id)a
-  @optional_fields ~w(results passed failed avg_cost_usd avg_latency_ms avg_score)a
+  @optional_fields ~w(
+    results
+    passed
+    failed
+    avg_cost_usd
+    avg_latency_ms
+    avg_score
+    total_cost_usd
+    cost_sample_count
+    total_latency_ms
+    latency_sample_count
+  )a
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -30,6 +41,10 @@ defmodule Aludel.Evals.SuiteRun do
     field :avg_cost_usd, :decimal
     field :avg_latency_ms, :integer
     field :avg_score, :decimal
+    field :total_cost_usd, :decimal
+    field :cost_sample_count, :integer, default: 0
+    field :total_latency_ms, :integer
+    field :latency_sample_count, :integer, default: 0
 
     belongs_to(:suite, Suite)
     belongs_to(:prompt_version, PromptVersion)

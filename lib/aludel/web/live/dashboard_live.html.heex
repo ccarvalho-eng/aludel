@@ -14,151 +14,211 @@
       </div>
     </div>
 
-    <div class="stats-grid">
-      <div class="aludel-card p-md">
-        <div class="stat-card-header">
-          <.icon name="hero-play" class="size-5 text-muted" />
-          <div class="stat-info-tooltip">
-            <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
-            <div class="stat-info-tooltip-content">
-              Combined total of individual prompt runs and complete suite runs executed
-            </div>
-          </div>
+    <section id="rolling-analytics" style="margin-bottom: 32px;">
+      <div style="display: flex; justify-content: space-between; align-items: end; margin-bottom: 12px;">
+        <div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Recent performance</h2>
+          <p class="text-sm text-secondary" style="margin: 4px 0 0;">
+            Compared with the matching previous period
+          </p>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-          <div class="stat-value">{@total_runs}</div>
-          <%= if @trends.trends.total_runs == :up do %>
-            <.icon name="hero-arrow-trending-up" class="size-5 text-green-600" />
-          <% end %>
-          <%= if @trends.trends.total_runs == :down do %>
-            <.icon name="hero-arrow-trending-down" class="size-5 text-red-600" />
-          <% end %>
-        </div>
-        <div class="stat-label text-sm font-medium">Total Runs</div>
-        <div class="stat-description mt-xs">Evaluations executed</div>
-        <%= if @daily_activity != [] && Enum.any?(@daily_activity, & &1.total > 0) do %>
-          <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-            <button
-              phx-click="toggle_activity_chart"
-              style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
-              onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
-              onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
-            >
-              <span>{if @show_activity_chart, do: "Hide chart", else: "Show chart"}</span>
-              <.icon
-                name={if @show_activity_chart, do: "hero-chevron-up", else: "hero-chevron-down"}
-                class="size-3"
-              />
-            </button>
-          </div>
-        <% end %>
       </div>
-
-      <div class="aludel-card p-md">
-        <div class="stat-card-header">
-          <.icon name="hero-check-circle" class="size-5 text-muted" />
-          <div class="stat-info-tooltip">
-            <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
-            <div class="stat-info-tooltip-content">
-              Success rate across all test assertions in suite runs (excludes individual prompt runs)
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+        <%= for days <- [7, 30] do %>
+          <% window = Map.fetch!(@rolling_windows, days) %>
+          <% stats = window.current %>
+          <article id={"rolling-window-#{days}"} class="aludel-card p-md">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+              <h3 style="margin: 0; font-size: 15px; font-weight: 600;">Last {days} days</h3>
+              <span class="text-sm text-secondary">{stats.total_runs} runs</span>
             </div>
-          </div>
-        </div>
-        <div class="stat-value mb-xs">{@success_rate}%</div>
-        <div class="stat-label text-sm font-medium">Success Rate</div>
-        <div class="stat-description mt-xs">
-          {@total_passed} passed, {@total_failed} failed
-        </div>
-        <%= if @pass_rates != [] do %>
-          <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-            <button
-              phx-click="toggle_pass_rates"
-              style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
-              onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
-              onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
-            >
-              <span>{if @show_pass_rates, do: "Hide by prompt", else: "View by prompt"}</span>
-              <.icon
-                name={if @show_pass_rates, do: "hero-chevron-up", else: "hero-chevron-down"}
-                class="size-3"
-              />
-            </button>
-          </div>
-        <% end %>
-      </div>
-
-      <div class="aludel-card p-md">
-        <div class="stat-card-header">
-          <.icon name="hero-clock" class="size-5 text-muted" />
-          <div class="stat-info-tooltip">
-            <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
-            <div class="stat-info-tooltip-content">
-              Average response time per individual run with percentile distributions (P50 = 50th percentile, P95 = 95th percentile)
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+              <div>
+                <div class="stat-label text-sm">Pass rate</div>
+                <div id={"rolling-window-#{days}-pass-rate"} class="font-medium">
+                  {format_pass_rate(stats.pass_rate)}
+                </div>
+              </div>
+              <div>
+                <div class="stat-label text-sm">Cost / pass</div>
+                <div
+                  id={"rolling-window-#{days}-cost-per-pass"}
+                  data-state={efficiency_state(stats)}
+                  class="font-medium"
+                >
+                  {format_cost_per_pass(stats)}
+                </div>
+              </div>
+              <div>
+                <div class="stat-label text-sm">Latency / pass</div>
+                <div
+                  id={"rolling-window-#{days}-latency-per-pass"}
+                  data-state={efficiency_state(stats)}
+                  class="font-medium"
+                >
+                  {format_latency_per_pass(stats)}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div class="stat-value mb-xs">{trunc(@avg_latency)}ms</div>
-        <div class="stat-label text-sm font-medium">Avg Latency</div>
-        <div class="stat-description mt-xs">
-          Per run · P50: {trunc(@latency_p50)}ms, P95: {trunc(@latency_p95)}ms
-        </div>
-        <%= if @latency_by_provider != [] do %>
-          <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-            <button
-              phx-click="toggle_latency_breakdown"
-              style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
-              onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
-              onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
-            >
-              <span>
-                {if @show_latency_breakdown, do: "Hide breakdown", else: "View breakdown"}
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 16px; font-size: 12px; color: var(--text-secondary);">
+              <span>{stability_label(window.comparison.stability)} stability</span>
+              <span :for={regression <- window.comparison.regressions} class="tag">
+                {regression} regression
               </span>
-              <.icon
-                name={
-                  if @show_latency_breakdown, do: "hero-chevron-up", else: "hero-chevron-down"
-                }
-                class="size-3"
-              />
-            </button>
-          </div>
+            </div>
+          </article>
         <% end %>
       </div>
+    </section>
 
-      <div id="cost-summary" class="aludel-card p-md">
-        <div class="stat-card-header">
-          <.icon name="hero-currency-dollar" class="size-5 text-muted" />
-          <div class="stat-info-tooltip">
-            <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
-            <div class="stat-info-tooltip-content">
-              Combined costs across all prompt runs and suite executions, with average cost per execution
+    <section id="lifetime-summary">
+      <h2 style="margin: 0 0 12px; font-size: 18px; font-weight: 600;">Lifetime context</h2>
+      <div class="stats-grid">
+        <div class="aludel-card p-md">
+          <div class="stat-card-header">
+            <.icon name="hero-play" class="size-5 text-muted" />
+            <div class="stat-info-tooltip">
+              <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
+              <div class="stat-info-tooltip-content">
+                Combined total of individual prompt runs and complete suite runs executed
+              </div>
             </div>
           </div>
-        </div>
-        <div class="stat-value" style="margin-bottom: 2px;">
-          ${:erlang.float_to_binary(@total_cost, decimals: 4)}
-        </div>
-        <div class="stat-label" style="font-size: 13px; font-weight: 500;">Total Cost</div>
-        <div class="stat-description" style="margin-top: 2px;">
-          ${:erlang.float_to_binary(@cost_per_run, decimals: 4)} per execution
-        </div>
-        <%= if @cost_by_provider != [] || @cost_by_prompt != [] do %>
-          <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-            <button
-              phx-click="toggle_cost_breakdown"
-              style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
-              onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
-              onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
-            >
-              <span>{if @show_cost_breakdown, do: "Hide breakdown", else: "View breakdown"}</span>
-              <.icon
-                name={if @show_cost_breakdown, do: "hero-chevron-up", else: "hero-chevron-down"}
-                class="size-3"
-              />
-            </button>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+            <div class="stat-value">{@total_runs}</div>
+            <%= if @trends.trends.total_runs == :up do %>
+              <.icon name="hero-arrow-trending-up" class="size-5 text-green-600" />
+            <% end %>
+            <%= if @trends.trends.total_runs == :down do %>
+              <.icon name="hero-arrow-trending-down" class="size-5 text-red-600" />
+            <% end %>
           </div>
-        <% end %>
+          <div class="stat-label text-sm font-medium">Total Runs</div>
+          <div class="stat-description mt-xs">Evaluations executed</div>
+          <%= if @daily_activity != [] && Enum.any?(@daily_activity, & &1.total > 0) do %>
+            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+              <button
+                phx-click="toggle_activity_chart"
+                style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
+                onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
+              >
+                <span>{if @show_activity_chart, do: "Hide chart", else: "Show chart"}</span>
+                <.icon
+                  name={if @show_activity_chart, do: "hero-chevron-up", else: "hero-chevron-down"}
+                  class="size-3"
+                />
+              </button>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="aludel-card p-md">
+          <div class="stat-card-header">
+            <.icon name="hero-check-circle" class="size-5 text-muted" />
+            <div class="stat-info-tooltip">
+              <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
+              <div class="stat-info-tooltip-content">
+                Success rate across all test assertions in suite runs (excludes individual prompt runs)
+              </div>
+            </div>
+          </div>
+          <div class="stat-value mb-xs">{@success_rate}%</div>
+          <div class="stat-label text-sm font-medium">Success Rate</div>
+          <div class="stat-description mt-xs">
+            {@total_passed} passed, {@total_failed} failed
+          </div>
+          <%= if @pass_rates != [] do %>
+            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+              <button
+                phx-click="toggle_pass_rates"
+                style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
+                onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
+              >
+                <span>{if @show_pass_rates, do: "Hide by prompt", else: "View by prompt"}</span>
+                <.icon
+                  name={if @show_pass_rates, do: "hero-chevron-up", else: "hero-chevron-down"}
+                  class="size-3"
+                />
+              </button>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="aludel-card p-md">
+          <div class="stat-card-header">
+            <.icon name="hero-clock" class="size-5 text-muted" />
+            <div class="stat-info-tooltip">
+              <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
+              <div class="stat-info-tooltip-content">
+                Average response time per individual run with percentile distributions (P50 = 50th percentile, P95 = 95th percentile)
+              </div>
+            </div>
+          </div>
+          <div class="stat-value mb-xs">{trunc(@avg_latency)}ms</div>
+          <div class="stat-label text-sm font-medium">Avg Latency</div>
+          <div class="stat-description mt-xs">
+            Per run · P50: {trunc(@latency_p50)}ms, P95: {trunc(@latency_p95)}ms
+          </div>
+          <%= if @latency_by_provider != [] do %>
+            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+              <button
+                phx-click="toggle_latency_breakdown"
+                style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
+                onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
+              >
+                <span>
+                  {if @show_latency_breakdown, do: "Hide breakdown", else: "View breakdown"}
+                </span>
+                <.icon
+                  name={
+                    if @show_latency_breakdown, do: "hero-chevron-up", else: "hero-chevron-down"
+                  }
+                  class="size-3"
+                />
+              </button>
+            </div>
+          <% end %>
+        </div>
+
+        <div id="cost-summary" class="aludel-card p-md">
+          <div class="stat-card-header">
+            <.icon name="hero-currency-dollar" class="size-5 text-muted" />
+            <div class="stat-info-tooltip">
+              <.icon name="hero-information-circle" class="size-4 stat-info-icon" />
+              <div class="stat-info-tooltip-content">
+                Combined costs across all prompt runs and suite executions, with average cost per execution
+              </div>
+            </div>
+          </div>
+          <div class="stat-value" style="margin-bottom: 2px;">
+            ${:erlang.float_to_binary(@total_cost, decimals: 4)}
+          </div>
+          <div class="stat-label" style="font-size: 13px; font-weight: 500;">Total Cost</div>
+          <div class="stat-description" style="margin-top: 2px;">
+            ${:erlang.float_to_binary(@cost_per_run, decimals: 4)} per execution
+          </div>
+          <%= if @cost_by_provider != [] || @cost_by_prompt != [] do %>
+            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+              <button
+                phx-click="toggle_cost_breakdown"
+                style="background-color: var(--bg-secondary); border: 1px solid var(--border); padding: 4px 10px; font-size: 11px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 4px; border-radius: 5px; transition: all 0.15s ease; font-weight: 500;"
+                onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-primary)'"
+              >
+                <span>{if @show_cost_breakdown, do: "Hide breakdown", else: "View breakdown"}</span>
+                <.icon
+                  name={if @show_cost_breakdown, do: "hero-chevron-up", else: "hero-chevron-down"}
+                  class="size-3"
+                />
+              </button>
+            </div>
+          <% end %>
+        </div>
       </div>
-    </div>
+    </section>
 
     <%!-- Expandable breakdowns appear here after stat cards --%>
     <%= if @show_activity_chart && @daily_activity != [] && Enum.any?(@daily_activity, & &1.total > 0) do %>
