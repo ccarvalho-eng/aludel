@@ -34,7 +34,19 @@ defmodule Mix.Tasks.Aludel.EvalTest do
     assert payload["summary"]["passed"] == 1
     assert payload["summary"]["failed"] == 0
     assert payload["summary"]["pass_rate"] == 100.0
-    assert [%{"status" => "passed", "passed" => true}] = payload["results"]
+
+    assert [
+             %{
+               "status" => "passed",
+               "passed" => true,
+               "assertion_results" => [
+                 %{
+                   "reason" => "Output contains expected value",
+                   "metadata" => %{}
+                 }
+               ]
+             }
+           ] = payload["results"]
   end
 
   test "emits failing JSON and raises when an assertion fails" do

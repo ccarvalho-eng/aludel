@@ -82,6 +82,11 @@ defmodule Aludel.Web.ExportControllerTest do
                   "type" => "json_deep_compare",
                   "passed" => true,
                   "score" => 75.0,
+                  "reason" => "Deep comparison meets the 70.0% threshold",
+                  "metadata" => %{
+                    "decoded" => true,
+                    "threshold" => 70.0
+                  },
                   "value" => %{
                     "expected" => %{
                       "status" => "ok",
@@ -142,6 +147,11 @@ defmodule Aludel.Web.ExportControllerTest do
                    %{
                      "passed" => true,
                      "score" => 75.0,
+                     "reason" => "Deep comparison meets the 70.0% threshold",
+                     "metadata" => %{
+                       "decoded" => true,
+                       "threshold" => 70.0
+                     },
                      "score_details" => %{
                        "field_scores" => %{
                          "count" => 0,

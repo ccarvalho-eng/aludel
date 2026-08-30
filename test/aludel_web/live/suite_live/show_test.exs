@@ -1147,6 +1147,11 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
                   "type" => "json_deep_compare",
                   "passed" => true,
                   "score" => 75.0,
+                  "reason" => "Deep comparison meets the 70.0% threshold",
+                  "metadata" => %{
+                    "decoded" => true,
+                    "threshold" => 70.0
+                  },
                   "value" => %{
                     "expected" => %{
                       "status" => "ok",
@@ -1191,6 +1196,12 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
                view,
                "#suite-result-score-#{suite_run.id}-#{test_case.id}",
                "75.0% match"
+             )
+
+      assert has_element?(
+               view,
+               "#suite-result-metric-reason-#{suite_run.id}-#{test_case.id}-0",
+               "Deep comparison meets the 70.0% threshold"
              )
 
       assert has_element?(
