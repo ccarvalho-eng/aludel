@@ -80,7 +80,10 @@ defmodule Aludel.Evals do
 
     Suite
     |> repo().get!(id)
-    |> repo().preload(test_cases: {test_cases_query, :documents}, prompt: [])
+    |> repo().preload(
+      test_cases: {test_cases_query, [:documents, source_dataset_entry: :dataset]},
+      prompt: []
+    )
   end
 
   @doc """

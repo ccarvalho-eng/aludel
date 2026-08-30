@@ -1,0 +1,246 @@
+<Layouts.app flash={@flash} current_path={@current_path}>
+  <div class="page-container-wide">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
+      <.link
+        navigate={aludel_path("datasets")}
+        class="button-secondary"
+        aria-label="Back to datasets"
+      >
+        <.icon name="hero-arrow-left" class="size-4" />
+      </.link>
+      <div>
+        <h1 id="dataset-title" style="margin: 0; font-size: 27px;">{@dataset.name}</h1>
+        <p style="margin: 4px 0 0; color: var(--text-secondary); font-size: 13px;">
+          Reusable evaluation conversations and expectations
+        </p>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 24px; align-items: start;">
+      <aside style="display: flex; flex-direction: column; gap: 20px;">
+        <section class="aludel-card" aria-labelledby="dataset-details-heading">
+          <h2 id="dataset-details-heading" style="margin: 0 0 16px; font-size: 18px;">
+            Dataset details
+          </h2>
+          <.form
+            for={@dataset_form}
+            id="dataset-details-form"
+            phx-change="validate_dataset"
+            phx-submit="update_dataset"
+            style="display: flex; flex-direction: column; gap: 10px;"
+          >
+            <.input
+              id="dataset-name"
+              field={@dataset_form[:name]}
+              type="text"
+              label="Name"
+              required
+            />
+            <p
+              :if={@dataset_form[:name].errors != []}
+              id="dataset-name-error"
+              class="text-error text-sm"
+            >
+              {error_text(@dataset_form[:name].errors)}
+            </p>
+            <.input
+              field={@dataset_form[:description]}
+              type="textarea"
+              label="Description"
+              rows="3"
+            />
+            <.input
+              id="dataset-metadata-json"
+              field={@dataset_form[:metadata_json]}
+              type="textarea"
+              label="Metadata (JSON object)"
+              rows="5"
+              class="json-editor w-full textarea"
+            />
+            <p
+              :if={@dataset_form[:metadata_json].errors != []}
+              id="dataset-metadata-json-error"
+              class="text-error text-sm"
+            >
+              {error_text(@dataset_form[:metadata_json].errors)}
+            </p>
+            <button type="submit" class="button-primary">Save details</button>
+          </.form>
+        </section>
+
+        <section class="aludel-card" aria-labelledby="new-entry-heading">
+          <h2 id="new-entry-heading" style="margin: 0 0 6px; font-size: 18px;">New entry</h2>
+          <p style="margin: 0 0 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.5;">
+            Messages must use system, assistant, or user roles and end with a user turn.
+          </p>
+          <.form
+            for={@entry_form}
+            id="dataset-entry-form"
+            phx-change="validate_entry"
+            phx-submit="create_entry"
+            style="display: flex; flex-direction: column; gap: 8px;"
+          >
+            <.input field={@entry_form[:name]} type="text" label="Entry name" required />
+            <.input
+              id="entry-variable-values-json"
+              field={@entry_form[:variable_values_json]}
+              type="textarea"
+              label="Variables (JSON object)"
+              rows="4"
+              class="json-editor w-full textarea"
+            />
+            <p
+              :if={@entry_form[:variable_values_json].errors != []}
+              id="entry-variable-values-json-error"
+              class="text-error text-sm"
+            >
+              {error_text(@entry_form[:variable_values_json].errors)}
+            </p>
+            <.input
+              id="entry-messages-json"
+              field={@entry_form[:messages_json]}
+              type="textarea"
+              label="Messages (JSON array)"
+              rows="9"
+              class="json-editor w-full textarea"
+            />
+            <p
+              :if={@entry_form[:messages_json].errors != []}
+              id="entry-messages-json-error"
+              class="text-error text-sm"
+            >
+              {error_text(@entry_form[:messages_json].errors)}
+            </p>
+            <.input
+              id="entry-assertions-json"
+              field={@entry_form[:assertions_json]}
+              type="textarea"
+              label="Assertions (JSON array)"
+              rows="5"
+              class="json-editor w-full textarea"
+            />
+            <p
+              :if={@entry_form[:assertions_json].errors != []}
+              id="entry-assertions-json-error"
+              class="text-error text-sm"
+            >
+              {error_text(@entry_form[:assertions_json].errors)}
+            </p>
+            <.input
+              id="entry-metadata-json"
+              field={@entry_form[:metadata_json]}
+              type="textarea"
+              label="Metadata (JSON object)"
+              rows="4"
+              class="json-editor w-full textarea"
+            />
+            <p
+              :if={@entry_form[:metadata_json].errors != []}
+              id="entry-metadata-json-error"
+              class="text-error text-sm"
+            >
+              {error_text(@entry_form[:metadata_json].errors)}
+            </p>
+            <button id="create-dataset-entry" type="submit" class="button-primary">
+              Add entry
+            </button>
+          </.form>
+        </section>
+      </aside>
+
+      <section aria-labelledby="dataset-entries-heading">
+        <div style="display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 16px;">
+          <div>
+            <h2 id="dataset-entries-heading" style="margin: 0 0 4px; font-size: 22px;">
+              Entries
+            </h2>
+            <span id="dataset-entry-count" style="color: var(--text-secondary); font-size: 13px;">
+              {@entry_count} {if @entry_count == 1, do: "entry", else: "entries"}
+            </span>
+          </div>
+          <.form
+            for={@filter_form}
+            id="dataset-entry-filter-form"
+            phx-submit="filter_entries"
+            style="display: flex; align-items: start; gap: 8px; min-width: min(420px, 100%);"
+          >
+            <div style="flex: 1;">
+              <.input
+                field={@filter_form[:metadata_json]}
+                type="text"
+                label="Metadata filter (JSON object)"
+              />
+              <p
+                :if={@filter_form[:metadata_json].errors != []}
+                id="dataset-entry-filter-error"
+                class="text-error text-sm"
+              >
+                {error_text(@filter_form[:metadata_json].errors)}
+              </p>
+            </div>
+            <button type="submit" class="button-secondary" style="margin-top: 24px;">Filter</button>
+          </.form>
+        </div>
+
+        <div
+          :if={@entries_empty?}
+          id="dataset-entries-empty"
+          class="aludel-card"
+          style="padding: 52px 20px; text-align: center; color: var(--text-secondary);"
+        >
+          <.icon name="hero-chat-bubble-left-right" class="size-10 text-muted empty-state-icon" />
+          <p style="margin: 12px 0 0;">No entries match this dataset view.</p>
+        </div>
+
+        <div
+          id="dataset-entries"
+          phx-update="stream"
+          style="display: flex; flex-direction: column; gap: 14px;"
+        >
+          <article
+            :for={{dom_id, entry} <- @streams.entries}
+            id={dom_id}
+            class="aludel-card"
+            style="padding: 18px;"
+          >
+            <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 14px;">
+              <div>
+                <h3 style="margin: 0 0 4px; font-size: 17px;">{entry.name}</h3>
+                <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+                  {length(entry.messages)} messages · position {entry.position}
+                </span>
+              </div>
+              <button
+                id={"delete-dataset-entry-#{entry.id}"}
+                type="button"
+                phx-click="delete_entry"
+                phx-value-id={entry.id}
+                class="button-danger"
+              >
+                Delete
+              </button>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 7px;">
+              <div
+                :for={{message, index} <- Enum.with_index(entry.messages)}
+                id={"dataset-entry-message-#{entry.id}-#{index}"}
+                style="display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 9px 10px; border-radius: 7px; background: var(--bg-tertiary); font-size: 13px;"
+              >
+                <strong style="color: var(--accent); text-transform: capitalize;">{message["role"]}</strong>
+                <span style="white-space: pre-wrap;">{message["content"]}</span>
+              </div>
+            </div>
+
+            <div
+              id={"dataset-entry-metadata-#{entry.id}"}
+              style="margin-top: 12px; color: var(--text-secondary); font: 12px/1.5 monospace; overflow-wrap: anywhere;"
+            >
+              metadata: {Jason.encode!(entry.metadata)}
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+  </div>
+</Layouts.app>

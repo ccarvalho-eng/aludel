@@ -160,6 +160,36 @@
           </button>
         </div>
       </div>
+      <section
+        id="suite-dataset-import"
+        style="margin-bottom: 16px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-secondary);"
+      >
+        <.form
+          for={@dataset_import_form}
+          id="populate-suite-from-dataset-form"
+          phx-submit="populate_from_dataset"
+          style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end;"
+        >
+          <.input
+            id="suite-dataset-id"
+            field={@dataset_import_form[:dataset_id]}
+            type="select"
+            label="Populate from dataset"
+            prompt="Choose a dataset"
+            options={Enum.map(@datasets, &{&1.name, &1.id})}
+          />
+          <button type="submit" class="button-secondary" disabled={@datasets == []}>
+            Add entries
+          </button>
+        </.form>
+        <p
+          :if={@dataset_import_status}
+          id="dataset-import-status"
+          style="margin: 8px 0 0; color: var(--text-secondary); font-size: 12px;"
+        >
+          {@dataset_import_status}
+        </p>
+      </section>
       <%= if @show_test_case_import do %>
         <section
           id="test-case-import-panel"
@@ -301,7 +331,7 @@
         style="display: flex; flex-direction: column; gap: 16px;"
       >
         <%= for test_case <- @suite.test_cases do %>
-          <div class="aludel-card">
+          <div id={"test-case-#{test_case.id}"} class="aludel-card">
             <%= if @editing_test_case_id == test_case.id do %>
               <%!-- Edit Mode --%>
               <div style="background: var(--bg-secondary); padding: 20px;">
@@ -644,6 +674,21 @@
             <% else %>
               <%!-- Display Mode --%>
               <div>
+                <div
+                  :if={test_case.source_dataset_entry}
+                  id={"test-case-provenance-#{test_case.id}"}
+                  style="margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--text-secondary); font-size: 12px;"
+                >
+                  From dataset
+                  <.link
+                    navigate={
+                      aludel_path("datasets/#{test_case.source_dataset_entry.dataset.id}")
+                    }
+                    style="font-weight: 600;"
+                  >
+                    {test_case.source_dataset_entry.dataset.name}
+                  </.link>
+                </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                   <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent) 0%, rgba(139, 92, 246, 0.7) 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 14px; box-shadow: 0 2px 4px rgba(139, 92, 246, 0.2);">
@@ -669,6 +714,21 @@
                     >
                       Delete
                     </button>
+                  </div>
+                </div>
+                <div
+                  :if={test_case.messages != []}
+                  style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;"
+                >
+                  <div
+                    :for={{message, index} <- Enum.with_index(test_case.messages)}
+                    id={"test-case-message-#{test_case.id}-#{index}"}
+                    style="display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; padding: 8px 10px; border-radius: 6px; background: var(--bg-tertiary); font-size: 12px;"
+                  >
+                    <strong style="color: var(--accent); text-transform: capitalize;">{message[
+                      "role"
+                    ]}</strong>
+                    <span style="white-space: pre-wrap;">{message["content"]}</span>
                   </div>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">

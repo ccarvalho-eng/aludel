@@ -4,11 +4,13 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
   import ExUnit.CaptureLog
   import Phoenix.LiveViewTest
   import Aludel.EvalsFixtures
+  import Aludel.DatasetsFixtures
   import Aludel.PromptsFixtures
   import Aludel.ProvidersFixtures
   import Mox
 
   alias Aludel.Evals
+  alias Aludel.Datasets
   alias Aludel.Interfaces.HttpClientMock
 
   test "displays suite details", %{conn: conn} do
@@ -36,6 +38,66 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
     {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
 
     assert has_element?(view, "#run-suite-btn")
+  end
+
+  describe "dataset population" do
+    test "imports multi-turn entries once and renders their provenance", %{conn: conn} do
+      suite = suite_fixture()
+      dataset = dataset_fixture()
+      entry = dataset_entry_fixture(%{dataset: dataset})
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      view
+      |> form("#populate-suite-from-dataset-form", dataset_import: %{dataset_id: dataset.id})
+      |> render_submit()
+
+      [test_case] = Evals.get_suite_with_test_cases_and_prompt!(suite.id).test_cases
+      assert test_case.source_dataset_entry_id == entry.id
+      assert has_element?(view, "#test-case-#{test_case.id}")
+      assert has_element?(view, "#test-case-provenance-#{test_case.id}", dataset.name)
+      assert has_element?(view, "#test-case-message-#{test_case.id}-2", "Reset my password.")
+
+      view
+      |> form("#populate-suite-from-dataset-form", dataset_import: %{dataset_id: dataset.id})
+      |> render_submit()
+
+      assert has_element?(view, "#dataset-import-status", "already imported")
+      assert length(Evals.get_suite_with_test_cases_and_prompt!(suite.id).test_cases) == 1
+    end
+
+    test "handles a missing dataset without changing the suite", %{conn: conn} do
+      suite = suite_fixture()
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      render_hook(view, "populate_from_dataset", %{
+        "dataset_import" => %{"dataset_id" => Ecto.UUID.generate()}
+      })
+
+      assert has_element?(view, "#dataset-import-status", "Dataset not found")
+      assert Evals.get_suite_with_test_cases_and_prompt!(suite.id).test_cases == []
+    end
+
+    test "handles a malformed dataset id without crashing", %{conn: conn} do
+      suite = suite_fixture()
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      render_hook(view, "populate_from_dataset", %{
+        "dataset_import" => %{"dataset_id" => "not-a-dataset-id"}
+      })
+
+      assert has_element?(view, "#dataset-import-status", "Dataset not found")
+      assert Evals.get_suite_with_test_cases_and_prompt!(suite.id).test_cases == []
+    end
+
+    test "offers every available dataset in the import selector", %{conn: conn} do
+      suite = suite_fixture()
+      dataset = dataset_fixture()
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      assert has_element?(view, "#suite-dataset-id option[value='#{dataset.id}']", dataset.name)
+      assert has_element?(view, "#populate-suite-from-dataset-form")
+      assert Datasets.list_datasets() == [dataset]
+    end
   end
 
   describe "test case import" do

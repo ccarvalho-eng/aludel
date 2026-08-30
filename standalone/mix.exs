@@ -23,7 +23,7 @@ defmodule AludelDash.MixProject do
     [
       {:aludel, path: ".."},
       {:phoenix, "~> 1.8"},
-      {:phoenix_live_view, "~> 1.1"},
+      {:phoenix_live_view, "~> 1.2.1"},
       {:phoenix_html, "~> 4.0"},
       {:bandit, "~> 1.5"},
       {:ecto_sql, "~> 3.10"},
