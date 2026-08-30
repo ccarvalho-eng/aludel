@@ -17,7 +17,7 @@ FROM ${BUILDER_IMAGE} AS library
 RUN apt-get update -y && apt-get install -y --no-install-recommends build-essential curl git \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
   && apt-get install -y --no-install-recommends nodejs \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
