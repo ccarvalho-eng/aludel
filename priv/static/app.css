@@ -2049,6 +2049,9 @@
     width: calc(var(--spacing) * 12);
     height: calc(var(--spacing) * 12);
   }
+  .h-10 {
+    height: calc(var(--spacing) * 10);
+  }
   .min-h-full {
     min-height: 100%;
   }

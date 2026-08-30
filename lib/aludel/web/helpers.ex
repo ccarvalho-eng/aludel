@@ -46,7 +46,7 @@ defmodule Aludel.Web.Helpers do
 
   @doc """
   Returns the icon path for a provider enum or provider struct.
-  Accepts atoms (:openai, :anthropic, :ollama) or provider structs with a :provider field.
+  Accepts provider atoms or provider structs with a `:provider` field.
   """
   def provider_icon(%{provider: provider_enum}) when is_atom(provider_enum) do
     provider_icon(provider_enum)
@@ -58,6 +58,7 @@ defmodule Aludel.Web.Helpers do
       :anthropic -> "/images/anthropic-icon.svg"
       :ollama -> "/images/ollama-icon.svg"
       :google -> "/images/gemini-icon.svg"
+      :xai -> "/images/grok-icon.svg"
       _ -> nil
     end
   end

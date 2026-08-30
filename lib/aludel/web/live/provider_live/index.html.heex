@@ -49,7 +49,12 @@
                         class={"provider-icon-#{provider.provider}"}
                       />
                     <% else %>
-                      <.icon name="hero-server-stack" class="size-5 text-muted" />
+                      <.icon
+                        name="hero-server-stack"
+                        class={
+                          "size-5 text-muted provider-icon-fallback provider-icon-fallback-#{provider.provider}"
+                        }
+                      />
                     <% end %>
                     <span style="font-weight: 500;">{provider.name}</span>
                     <span class="tag">{provider.provider}</span>

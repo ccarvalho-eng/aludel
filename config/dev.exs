@@ -22,7 +22,10 @@ config :aludel, Aludel.Web.Endpoint,
 config :aludel, :llm,
   openai_api_key: System.get_env("OPENAI_API_KEY"),
   anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
-  google_api_key: System.get_env("GOOGLE_API_KEY")
+  google_api_key: System.get_env("GOOGLE_API_KEY"),
+  xai_api_key: System.get_env("XAI_API_KEY"),
+  groq_api_key: System.get_env("GROQ_API_KEY"),
+  openrouter_api_key: System.get_env("OPENROUTER_API_KEY")
 
 config :aludel, Aludel.Storage,
   adapter: Aludel.Interfaces.Storage.Adapters.Local,

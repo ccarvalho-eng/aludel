@@ -11,7 +11,7 @@
 
 Aludel gives teams a clean way to evaluate prompt and model behavior without inventing their own tooling first.
 
-- Compare the same prompt across OpenAI, Anthropic, Gemini, and Ollama.
+- Compare the same prompt across OpenAI, Anthropic, Gemini, Ollama, xAI, Groq, and OpenRouter.
 - Inspect output, latency, token usage, and cost side by side.
 - Compare prompt versions and see pass-rate, cost, and latency changes over time.
 - Run evaluation suites with assertions, document attachments, and CSV or JSON test case imports.
@@ -206,7 +206,8 @@ mix ecto.migrate
 mix phx.server
 ```
 
-To populate the local database with sample prompts, providers, and suites:
+To populate the local database with realistic prompts, providers, datasets, suites, AI-like
+results, and 60 days of comparison history:
 
 ```bash
 mix aludel.seed
@@ -231,7 +232,7 @@ After restarting `mix phx.server`, create a prompt version and provider in the U
 
 ## Provider support
 
-Aludel supports OpenAI, Anthropic, Google Gemini, and Ollama.
+Aludel supports OpenAI, Anthropic, Google Gemini, Ollama, xAI, Groq, and OpenRouter.
 
 | Provider | API key required | Notes |
 |---|---|---|
@@ -239,6 +240,9 @@ Aludel supports OpenAI, Anthropic, Google Gemini, and Ollama.
 | Anthropic | Yes | Configure with `ANTHROPIC_API_KEY` |
 | Google Gemini | Yes | Configure with `GOOGLE_API_KEY` |
 | Ollama | No | Runs locally |
+| xAI | Yes | Configure with `XAI_API_KEY` |
+| Groq | Yes | Configure with `GROQ_API_KEY` |
+| OpenRouter | Yes | Configure with `OPENROUTER_API_KEY` |
 
 For embedded apps, configure provider keys in `config/runtime.exs`:
 
@@ -247,7 +251,10 @@ For embedded apps, configure provider keys in `config/runtime.exs`:
 config :aludel, :llm,
   openai_api_key: System.get_env("OPENAI_API_KEY"),
   anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
-  google_api_key: System.get_env("GOOGLE_API_KEY")
+  google_api_key: System.get_env("GOOGLE_API_KEY"),
+  xai_api_key: System.get_env("XAI_API_KEY"),
+  groq_api_key: System.get_env("GROQ_API_KEY"),
+  openrouter_api_key: System.get_env("OPENROUTER_API_KEY")
 ```
 
 Ollama runs locally and does not require an API key.

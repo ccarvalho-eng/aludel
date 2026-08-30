@@ -88,6 +88,20 @@ defmodule Aludel.ProvidersTest do
       assert provider.model == "gemini-2.5-flash"
     end
 
+    test "create_provider/1 accepts the expanded provider types" do
+      for provider_type <- [:xai, :groq, :openrouter] do
+        assert {:ok, provider} =
+                 Providers.create_provider(%{
+                   name: "#{provider_type} provider",
+                   provider: provider_type,
+                   model: "test-model",
+                   config: %{}
+                 })
+
+        assert provider.provider == provider_type
+      end
+    end
+
     test "lists providers including google type" do
       _openai = provider_fixture(%{name: "OpenAI", provider: :openai, model: "gpt-4o"})
 

@@ -488,7 +488,7 @@ defmodule Aludel.LLMTest do
       Application.delete_env(:aludel, :llm)
 
       try do
-        for provider_type <- [:openai, :anthropic, :google] do
+        for provider_type <- [:openai, :anthropic, :google, :xai, :groq, :openrouter] do
           provider =
             provider_fixture(%{provider: provider_type, model: "test-model", config: %{}})
 
@@ -513,6 +513,70 @@ defmodule Aludel.LLMTest do
 
       result = LLM.call(provider, "test", [])
       assert {:error, {:network_error, :timeout}} = result
+    end
+  end
+
+  describe "call/3 with expanded providers" do
+    test "uses provider-qualified model specs and configured API keys" do
+      original_config = Application.get_env(:aludel, :llm)
+
+      Application.put_env(:aludel, :llm,
+        xai_api_key: "xai-test-key",
+        groq_api_key: "groq-test-key",
+        openrouter_api_key: "openrouter-test-key"
+      )
+
+      providers = [
+        {:xai, "grok-4", "xai-test-key"},
+        {:groq, "llama-3.3-70b-versatile", "groq-test-key"},
+        {:openrouter, "anthropic/claude-sonnet-4", "openrouter-test-key"}
+      ]
+
+      try do
+        Enum.each(providers, fn {provider_type, model, api_key} ->
+          expect(HttpClientMock, :request, fn model_spec, "test", opts ->
+            assert model_spec == "#{provider_type}:#{model}"
+            assert Keyword.fetch!(opts, :api_key) == api_key
+            assert Keyword.fetch!(opts, :temperature) == 0.7
+            assert Keyword.fetch!(opts, :max_tokens) == 1024
+
+            {:ok, build_mock_response("Expanded provider response", 5, 10)}
+          end)
+
+          provider =
+            provider_fixture(%{
+              name: "#{provider_type} test provider",
+              provider: provider_type,
+              model: model,
+              config: %{},
+              pricing: %{"input" => 1.0, "output" => 2.0}
+            })
+
+          assert {:ok, result} = LLM.call(provider, "test", [])
+          assert result.output == "Expanded provider response"
+          assert result.input_tokens == 5
+          assert result.output_tokens == 10
+          assert result.cost_usd == 0.000025
+        end)
+      after
+        Application.put_env(:aludel, :llm, original_config)
+      end
+    end
+
+    test "normalizes provider errors through the shared parser" do
+      expect(HttpClientMock, :request, fn "groq:test-model", "test", _opts ->
+        {:error, %{status: 429}}
+      end)
+
+      provider =
+        provider_fixture(%{
+          name: "Groq error provider",
+          provider: :groq,
+          model: "test-model",
+          config: %{}
+        })
+
+      assert {:error, {:rate_limit, nil}} = LLM.call(provider, "test", [])
     end
   end
 

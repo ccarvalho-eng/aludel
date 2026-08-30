@@ -36,7 +36,10 @@ config :phoenix_live_view,
 config :aludel, :llm,
   openai_api_key: "sk-test-fake-openai-key-for-testing",
   anthropic_api_key: "sk-ant-test-fake-anthropic-key-for-testing",
-  google_api_key: "sk-test-fake-google-api-key-for-testing"
+  google_api_key: "sk-test-fake-google-api-key-for-testing",
+  xai_api_key: "xai-test-fake-key-for-testing",
+  groq_api_key: "gsk-test-fake-key-for-testing",
+  openrouter_api_key: "sk-or-test-fake-key-for-testing"
 
 # Use mocked HTTP client for all tests
 config :aludel,

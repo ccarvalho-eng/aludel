@@ -64,5 +64,46 @@ defmodule Aludel.ProvidersModelsTest do
     test "returns empty groups for unknown provider string" do
       assert %{active: [], deprecated: []} = Providers.fetch_model_groups("unknown")
     end
+
+    test "fetches text generation models for expanded provider string types" do
+      for provider <- ~w(xai groq openrouter) do
+        groups = Providers.fetch_model_groups(provider)
+
+        assert groups.active != []
+      end
+
+      xai_ids = Providers.fetch_models("xai") |> Enum.map(& &1.id)
+      groq_ids = Providers.fetch_models("groq") |> Enum.map(& &1.id)
+      openrouter_ids = Providers.fetch_models("openrouter") |> Enum.map(& &1.id)
+
+      refute "grok-imagine-image" in xai_ids
+      refute "whisper-large-v3" in groq_ids
+      refute "black-forest-labs/flux.2-klein-4b" in openrouter_ids
+    end
+  end
+
+  describe "text_generation_model?/1" do
+    test "accepts chat-capable and text-in/text-out models" do
+      assert Providers.text_generation_model?(%{capabilities: %{chat: true}, modalities: nil})
+
+      assert Providers.text_generation_model?(%{
+               capabilities: nil,
+               modalities: %{input: [:text, :image], output: [:text]}
+             })
+    end
+
+    test "rejects transcription, image, and unknown-capability models" do
+      refute Providers.text_generation_model?(%{
+               capabilities: %{chat: false},
+               modalities: %{input: [:audio], output: [:text]}
+             })
+
+      refute Providers.text_generation_model?(%{
+               capabilities: nil,
+               modalities: %{input: [:text], output: [:image]}
+             })
+
+      refute Providers.text_generation_model?(%{capabilities: nil, modalities: nil})
+    end
   end
 end

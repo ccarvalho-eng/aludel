@@ -2,7 +2,8 @@ defmodule Aludel.LLM do
   @moduledoc """
   LLM client abstraction for multi-provider support.
 
-  Supports OpenAI, Anthropic, Google Gemini, and Ollama providers via direct HTTP calls.
+  Supports OpenAI, Anthropic, Google Gemini, Ollama, xAI, Groq, and OpenRouter
+  providers via ReqLLM.
   Provides unified interface for generating text completions and tracking usage metrics.
 
   Returns structured responses containing:
@@ -25,7 +26,16 @@ defmodule Aludel.LLM do
           cost_usd: float()
         }
 
-  alias Aludel.Interfaces.LLM.Providers.{Anthropic, Google, Ollama, OpenAI}
+  alias Aludel.Interfaces.LLM.Providers.{
+    Anthropic,
+    Google,
+    Groq,
+    Ollama,
+    OpenAI,
+    OpenRouter,
+    XAI
+  }
+
   alias Aludel.Providers.Pricing
   alias Aludel.Providers.Provider
 
@@ -33,7 +43,19 @@ defmodule Aludel.LLM do
     openai: OpenAI,
     anthropic: Anthropic,
     ollama: Ollama,
-    google: Google
+    google: Google,
+    xai: XAI,
+    groq: Groq,
+    openrouter: OpenRouter
+  }
+
+  @api_key_config_keys %{
+    openai: :openai_api_key,
+    anthropic: :anthropic_api_key,
+    google: :google_api_key,
+    xai: :xai_api_key,
+    groq: :groq_api_key,
+    openrouter: :openrouter_api_key
   }
 
   @type error_reason ::
@@ -107,13 +129,7 @@ defmodule Aludel.LLM do
   defp build_config(provider) do
     base_config = provider.config || %{}
 
-    api_key =
-      case provider.provider do
-        :openai -> get_openai_api_key()
-        :anthropic -> get_anthropic_api_key()
-        :google -> get_google_api_key()
-        :ollama -> nil
-      end
+    api_key = configured_api_key(provider.provider)
 
     case api_key do
       {:ok, key} -> Map.put(base_config, "api_key", key)
@@ -121,27 +137,13 @@ defmodule Aludel.LLM do
     end
   end
 
-  defp get_openai_api_key do
-    case Application.get_env(:aludel, :llm, [])[:openai_api_key] do
-      nil -> :error
-      "" -> :error
-      api_key -> {:ok, api_key}
-    end
-  end
-
-  defp get_anthropic_api_key do
-    case Application.get_env(:aludel, :llm, [])[:anthropic_api_key] do
-      nil -> :error
-      "" -> :error
-      api_key -> {:ok, api_key}
-    end
-  end
-
-  defp get_google_api_key do
-    case Application.get_env(:aludel, :llm, [])[:google_api_key] do
-      nil -> :error
-      "" -> :error
-      api_key -> {:ok, api_key}
+  defp configured_api_key(provider_name) do
+    with {:ok, config_key} <- Map.fetch(@api_key_config_keys, provider_name),
+         api_key when is_binary(api_key) and api_key != "" <-
+           Application.get_env(:aludel, :llm, [])[config_key] do
+      {:ok, api_key}
+    else
+      _missing_or_blank -> :error
     end
   end
 

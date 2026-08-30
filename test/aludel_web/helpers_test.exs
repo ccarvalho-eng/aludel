@@ -52,6 +52,15 @@ defmodule Aludel.Web.HelpersTest do
       assert Helpers.provider_icon(:ollama) == "/images/ollama-icon.svg"
     end
 
+    test "returns xAI's Grok icon path" do
+      assert Helpers.provider_icon(:xai) == "/images/grok-icon.svg"
+    end
+
+    test "uses the fallback for providers without bundled icons" do
+      assert Helpers.provider_icon(:groq) == nil
+      assert Helpers.provider_icon(:openrouter) == nil
+    end
+
     test "returns nil for unknown provider" do
       assert Helpers.provider_icon(:unknown) == nil
     end

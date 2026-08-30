@@ -194,6 +194,45 @@ defmodule Aludel.Web.ProviderLive.NewTest do
       assert html =~ "Google Gemini"
     end
 
+    test "shows the expanded providers in the provider type dropdown", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/providers/new")
+
+      assert has_element?(view, "#provider_provider option[value='xai']", "xAI")
+      assert has_element?(view, "#provider_provider option[value='groq']", "Groq")
+
+      assert has_element?(
+               view,
+               "#provider_provider option[value='openrouter']",
+               "OpenRouter"
+             )
+    end
+
+    test "creates an xAI provider through the form", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/providers/new")
+
+      view
+      |> form("#provider-form", provider: %{provider: "xai", model_selection: "custom"})
+      |> render_change()
+
+      view
+      |> form("#provider-form",
+        provider: %{
+          name: "xAI Grok",
+          provider: "xai",
+          model_selection: "custom",
+          model_custom: "grok-4",
+          config: ~s({"temperature":0.4})
+        }
+      )
+      |> render_submit()
+
+      assert_redirect(view, "/providers")
+
+      [provider] = Providers.list_providers()
+      assert provider.provider == :xai
+      assert provider.model == "grok-4"
+    end
+
     test "creates a Gemini provider through the form", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/providers/new")
 
@@ -276,16 +315,16 @@ defmodule Aludel.Web.ProviderLive.NewTest do
       {:ok, view, _html} = live(conn, "/providers/#{provider.id}/edit")
 
       view
-      |> form("#provider-form", provider: %{provider: "anthropic", model_selection: "custom"})
+      |> form("#provider-form", provider: %{provider: "openrouter", model_selection: "custom"})
       |> render_change()
 
       view
       |> form("#provider-form",
         provider: %{
           name: "Updated Provider",
-          provider: "anthropic",
+          provider: "openrouter",
           model_selection: "custom",
-          model_custom: "claude-3-7-sonnet",
+          model_custom: "anthropic/claude-sonnet-4",
           config: ~s({"temperature":0.4})
         }
       )
@@ -295,8 +334,8 @@ defmodule Aludel.Web.ProviderLive.NewTest do
 
       updated_provider = Providers.get_provider!(provider.id)
       assert updated_provider.name == "Updated Provider"
-      assert updated_provider.provider == :anthropic
-      assert updated_provider.model == "claude-3-7-sonnet"
+      assert updated_provider.provider == :openrouter
+      assert updated_provider.model == "anthropic/claude-sonnet-4"
       assert updated_provider.config == %{"temperature" => 0.4}
     end
 
@@ -312,12 +351,13 @@ defmodule Aludel.Web.ProviderLive.NewTest do
       )
 
       refute has_element?(view, "#provider_model_selection option[value='gpt-4o'][selected]")
+      selected_model = Providers.fetch_models(:anthropic) |> hd() |> Map.fetch!(:id)
 
       view
       |> form("#provider-form",
         provider: %{
           provider: "anthropic",
-          model_selection: "claude-3-haiku-20240307",
+          model_selection: selected_model,
           name: "OpenAI GPT-4o",
           config: ~s({})
         }
@@ -326,7 +366,7 @@ defmodule Aludel.Web.ProviderLive.NewTest do
 
       reloaded_provider = Providers.get_provider!(provider.id)
       assert reloaded_provider.provider == :anthropic
-      assert reloaded_provider.model == "claude-3-haiku-20240307"
+      assert reloaded_provider.model == selected_model
     end
 
     test "keeps provider unchanged when invalid data is submitted", %{conn: conn} do
