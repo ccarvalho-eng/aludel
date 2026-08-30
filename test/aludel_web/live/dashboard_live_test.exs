@@ -122,4 +122,47 @@ defmodule Aludel.Web.DashboardLiveTest do
     # Total Cost tooltip
     assert html =~ "Combined costs across all prompt runs and suite executions"
   end
+
+  test "renders 7-day and 30-day rolling comparison cards before lifetime context", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/")
+
+    assert has_element?(view, "#rolling-window-7")
+    assert has_element?(view, "#rolling-window-30")
+    assert has_element?(view, "#rolling-window-7-pass-rate")
+    assert has_element?(view, "#rolling-window-7-cost-per-pass")
+    assert has_element?(view, "#rolling-window-7-latency-per-pass")
+    assert has_element?(view, "#lifetime-summary")
+  end
+
+  test "renders zero-pass efficiency without a misleading ratio", %{conn: conn} do
+    prompt = prompt_fixture()
+    {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Template")
+    suite = suite_fixture(%{prompt_id: prompt.id})
+    provider = Aludel.ProvidersFixtures.provider_fixture()
+
+    _suite_run =
+      suite_run_fixture(%{
+        suite_id: suite.id,
+        prompt_version_id: version.id,
+        provider_id: provider.id,
+        passed: 0,
+        failed: 5,
+        avg_cost_usd: Decimal.new("0.01"),
+        avg_latency_ms: 200
+      })
+
+    {:ok, view, _html} = live(conn, "/")
+
+    assert has_element?(
+             view,
+             "#rolling-window-7-cost-per-pass[data-state='no-passes']",
+             "No passing tests"
+           )
+
+    assert has_element?(
+             view,
+             "#rolling-window-7-latency-per-pass[data-state='no-passes']",
+             "No passing tests"
+           )
+  end
 end

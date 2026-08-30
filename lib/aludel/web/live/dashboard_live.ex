@@ -40,7 +40,8 @@ defmodule Aludel.Web.DashboardLive do
     total_cost = Runs.total_cost()
     # Calculate cost_per_run here to avoid redundant DB queries
     cost_per_run = if total_runs > 0, do: total_cost / total_runs, else: 0.0
-    trends = Overview.comparison_stats(7)
+    rolling_windows = Overview.rolling_comparisons()
+    trends = Map.fetch!(rolling_windows, 7)
 
     # Breakdown stats
     cost_by_provider = Costs.cost_by_provider()
@@ -66,6 +67,7 @@ defmodule Aludel.Web.DashboardLive do
       |> assign(:total_cost, total_cost)
       |> assign(:cost_per_run, cost_per_run)
       |> assign(:trends, trends)
+      |> assign(:rolling_windows, rolling_windows)
       |> assign(:cost_by_provider, cost_by_provider)
       |> assign(:cost_by_prompt, cost_by_prompt)
       |> assign(:latency_by_provider, latency_by_provider)
@@ -143,5 +145,59 @@ defmodule Aludel.Web.DashboardLive do
         0
       end
     end)
+  end
+
+  defp efficiency_state(%{efficiency_status: :no_passes}) do
+    "no-passes"
+  end
+
+  defp efficiency_state(%{efficiency_status: :no_tests}) do
+    "no-tests"
+  end
+
+  defp efficiency_state(_stats) do
+    "available"
+  end
+
+  defp format_pass_rate(nil) do
+    "No tests"
+  end
+
+  defp format_pass_rate(value) do
+    "#{:erlang.float_to_binary(value * 1.0, decimals: 1)}%"
+  end
+
+  defp format_cost_per_pass(%{efficiency_status: :no_passes}) do
+    "No passing tests"
+  end
+
+  defp format_cost_per_pass(%{cost_per_passed_test: nil}) do
+    "Unavailable"
+  end
+
+  defp format_cost_per_pass(stats) do
+    "$#{:erlang.float_to_binary(stats.cost_per_passed_test, decimals: 4)}"
+  end
+
+  defp format_latency_per_pass(%{efficiency_status: :no_passes}) do
+    "No passing tests"
+  end
+
+  defp format_latency_per_pass(%{latency_per_passed_test: nil}) do
+    "Unavailable"
+  end
+
+  defp format_latency_per_pass(stats) do
+    "#{round(stats.latency_per_passed_test)}ms"
+  end
+
+  defp stability_label(:insufficient_data) do
+    "Needs more runs"
+  end
+
+  defp stability_label(stability) do
+    stability
+    |> Atom.to_string()
+    |> String.capitalize()
   end
 end

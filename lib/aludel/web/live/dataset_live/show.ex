@@ -5,6 +5,8 @@ defmodule Aludel.Web.DatasetLive.Show do
 
   use Aludel.Web, :live_view
 
+  alias Aludel.Web.CoreComponents
+
   alias Aludel.Datasets
   alias Aludel.Datasets.Params
 
@@ -164,6 +166,6 @@ defmodule Aludel.Web.DatasetLive.Show do
   end
 
   defp error_text(errors) do
-    Enum.map_join(errors, ", ", &Aludel.Web.CoreComponents.translate_error/1)
+    Enum.map_join(errors, ", ", &CoreComponents.translate_error/1)
   end
 end

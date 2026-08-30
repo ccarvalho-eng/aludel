@@ -652,8 +652,28 @@ defmodule Aludel.Evals do
       failed: failed,
       avg_cost_usd: average_cost(metrics),
       avg_latency_ms: average_latency(metrics),
-      avg_score: average_score(metrics)
+      avg_score: average_score(metrics),
+      total_cost_usd: total_cost(metrics),
+      cost_sample_count: metrics.cost_samples,
+      total_latency_ms: total_latency(metrics),
+      latency_sample_count: metrics.latency_samples
     }
+  end
+
+  defp total_cost(%{cost_samples: 0}) do
+    nil
+  end
+
+  defp total_cost(%{total_cost: total_cost}) do
+    total_cost
+  end
+
+  defp total_latency(%{latency_samples: 0}) do
+    nil
+  end
+
+  defp total_latency(%{total_latency: total_latency}) do
+    total_latency
   end
 
   defp decimal_from_number(number) when is_float(number), do: Decimal.from_float(number)

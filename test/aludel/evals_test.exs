@@ -467,6 +467,10 @@ defmodule Aludel.EvalsTest do
       assert updated_suite_run.failed == 0
       assert Decimal.compare(updated_suite_run.avg_cost_usd, Decimal.new("0")) == :gt
       assert updated_suite_run.avg_latency_ms >= 0
+      assert updated_suite_run.cost_sample_count == 2
+      assert updated_suite_run.latency_sample_count == 2
+      assert Decimal.compare(updated_suite_run.total_cost_usd, Decimal.new("0")) == :gt
+      assert updated_suite_run.total_latency_ms >= 0
 
       reloaded_suite_run = Evals.get_suite_run!(suite_run.id)
 
@@ -552,6 +556,10 @@ defmodule Aludel.EvalsTest do
       assert suite_run.avg_latency_ms != nil
       assert Decimal.compare(suite_run.avg_cost_usd, Decimal.new("0")) == :gt
       assert suite_run.avg_latency_ms >= 0
+      assert suite_run.cost_sample_count == 2
+      assert suite_run.latency_sample_count == 2
+      assert Decimal.compare(suite_run.total_cost_usd, Decimal.new("0")) == :gt
+      assert suite_run.total_latency_ms >= 0
     end
 
     test "execute_suite handles partial failures in metrics" do

@@ -9,8 +9,8 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
   import Aludel.ProvidersFixtures
   import Mox
 
-  alias Aludel.Evals
   alias Aludel.Datasets
+  alias Aludel.Evals
   alias Aludel.Interfaces.HttpClientMock
 
   test "displays suite details", %{conn: conn} do
