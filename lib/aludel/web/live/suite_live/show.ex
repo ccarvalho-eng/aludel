@@ -8,6 +8,7 @@ defmodule Aludel.Web.SuiteLive.Show do
 
   use Aludel.Web, :live_view
 
+  alias Aludel.Datasets
   alias Aludel.Evals
   alias Aludel.Evals.AssertionParser
   alias Aludel.Evals.DocumentIngestion
@@ -42,6 +43,7 @@ defmodule Aludel.Web.SuiteLive.Show do
     providers = Providers.list_providers()
     all_prompts = Prompts.list_prompts()
     projects = Projects.list_projects(type: :suite)
+    datasets = Datasets.list_datasets()
 
     # Load existing suite runs
     suite_runs = Evals.list_suite_runs_for_suite_with_associations(id)
@@ -58,6 +60,9 @@ defmodule Aludel.Web.SuiteLive.Show do
       |> assign(:selected_prompt_version, selected_prompt_version(prompt, default_version_id))
       |> assign(:all_prompts, all_prompts)
       |> assign(:projects, projects)
+      |> assign(:datasets, datasets)
+      |> assign(:dataset_import_form, to_form(%{"dataset_id" => ""}, as: :dataset_import))
+      |> assign(:dataset_import_status, nil)
       |> assign(:providers, providers)
       |> assign(:execution_mode_label, Executor.execution_mode_label())
       |> assign(:suite_runs, suite_runs)
@@ -73,6 +78,17 @@ defmodule Aludel.Web.SuiteLive.Show do
       |> assign(:assertion_edit_mode, %{})
 
     {:noreply, socket}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("populate_from_dataset", %{"dataset_import" => params}, socket) do
+    case Datasets.get_dataset(params["dataset_id"]) do
+      nil ->
+        {:noreply, assign(socket, :dataset_import_status, "Dataset not found")}
+
+      dataset ->
+        populate_from_dataset(socket, dataset)
+    end
   end
 
   @impl Phoenix.LiveView
@@ -976,4 +992,39 @@ defmodule Aludel.Web.SuiteLive.Show do
 
   defp format_execution_error_detail(detail) when is_binary(detail), do: detail
   defp format_execution_error_detail(detail), do: inspect(detail)
+
+  defp populate_from_dataset(socket, dataset) do
+    case Datasets.populate_suite(dataset, socket.assigns.suite) do
+      {:ok, []} ->
+        {:noreply,
+         assign(
+           socket,
+           :dataset_import_status,
+           "All entries from #{dataset.name} were already imported"
+         )}
+
+      {:ok, test_cases} ->
+        suite = Evals.get_suite_with_test_cases_and_prompt!(socket.assigns.suite.id)
+
+        {:noreply,
+         socket
+         |> assign(:suite, suite)
+         |> assign(
+           :dataset_import_status,
+           "Imported #{length(test_cases)} #{entry_label(test_cases)} from #{dataset.name}"
+         )
+         |> put_flash(:info, "Dataset entries imported")}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, :dataset_import_status, "Dataset import failed")}
+    end
+  end
+
+  defp entry_label([_test_case]) do
+    "entry"
+  end
+
+  defp entry_label(_test_cases) do
+    "entries"
+  end
 end

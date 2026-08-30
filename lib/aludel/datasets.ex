@@ -21,6 +21,14 @@ defmodule Aludel.Datasets do
     repo().get!(Dataset, id)
   end
 
+  @spec get_dataset(binary()) :: Dataset.t() | nil
+  def get_dataset(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, dataset_id} -> repo().get(Dataset, dataset_id)
+      :error -> nil
+    end
+  end
+
   @spec list_entries(Dataset.t(), keyword()) :: [DatasetEntry.t()]
   def list_entries(%Dataset{} = dataset, opts \\ []) do
     DatasetEntry
@@ -37,6 +45,19 @@ defmodule Aludel.Datasets do
     Dataset
     |> repo().get!(id)
     |> repo().preload(entries: entries)
+  end
+
+  @spec get_entry(Dataset.t(), binary()) :: DatasetEntry.t() | nil
+  def get_entry(%Dataset{} = dataset, id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, entry_id} ->
+        DatasetEntry
+        |> where([entry], entry.dataset_id == ^dataset.id and entry.id == ^entry_id)
+        |> repo().one()
+
+      :error ->
+        nil
+    end
   end
 
   @spec create_dataset(map()) :: {:ok, Dataset.t()} | {:error, Changeset.t()}

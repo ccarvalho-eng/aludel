@@ -51,6 +51,9 @@ defmodule Aludel.Web.Layouts do
           <.nav_link href={aludel_path("suites")} current_path={@current_path}>
             Suites
           </.nav_link>
+          <.nav_link href={aludel_path("datasets")} current_path={@current_path}>
+            Datasets
+          </.nav_link>
           <.nav_link href={aludel_path("providers")} current_path={@current_path}>
             Providers
           </.nav_link>

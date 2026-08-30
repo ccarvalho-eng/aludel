@@ -1,0 +1,115 @@
+<Layouts.app flash={@flash} current_path={@current_path}>
+  <div class="page-container-wide">
+    <div style="display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 24px; align-items: start;">
+      <section class="aludel-card" aria-labelledby="new-dataset-heading">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+          <.icon name="hero-circle-stack" class="size-6 text-muted" />
+          <h1 id="new-dataset-heading" style="margin: 0; font-size: 22px;">New dataset</h1>
+        </div>
+        <p style="margin: 0 0 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.5;">
+          Keep reusable single-turn and multi-turn evaluation examples in one ordered collection.
+        </p>
+        <.form
+          for={@dataset_form}
+          id="dataset-form"
+          phx-change="validate"
+          phx-submit="create"
+          style="display: flex; flex-direction: column; gap: 12px;"
+        >
+          <.input
+            id="dataset-name"
+            field={@dataset_form[:name]}
+            type="text"
+            label="Name"
+            required
+          />
+          <p
+            :if={@dataset_form[:name].errors != []}
+            id="dataset-name-error"
+            class="text-error text-sm"
+          >
+            {Enum.map_join(@dataset_form[:name].errors, ", ", &translate_error/1)}
+          </p>
+          <.input
+            field={@dataset_form[:description]}
+            type="textarea"
+            label="Description"
+            rows="3"
+          />
+          <.input
+            id="dataset-metadata-json"
+            field={@dataset_form[:metadata_json]}
+            type="textarea"
+            label="Metadata (JSON object)"
+            rows="5"
+            class="json-editor w-full textarea"
+          />
+          <p
+            :if={@dataset_form[:metadata_json].errors != []}
+            id="dataset-metadata-json-error"
+            class="text-error text-sm"
+          >
+            {Enum.map_join(@dataset_form[:metadata_json].errors, ", ", &translate_error/1)}
+          </p>
+          <button id="create-dataset" type="submit" class="button-primary">Create dataset</button>
+        </.form>
+      </section>
+
+      <section aria-labelledby="datasets-heading">
+        <div style="display: flex; justify-content: space-between; align-items: end; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);">
+          <div>
+            <h2 id="datasets-heading" style="margin: 0 0 4px; font-size: 26px;">Datasets</h2>
+            <p style="margin: 0; color: var(--text-secondary); font-size: 13px;">
+              Curate conversations once, then import them into any suite.
+            </p>
+          </div>
+        </div>
+
+        <div
+          :if={@datasets_empty?}
+          id="datasets-empty"
+          class="aludel-card"
+          style="padding: 56px 20px; text-align: center; color: var(--text-secondary);"
+        >
+          <.icon name="hero-circle-stack" class="size-10 text-muted empty-state-icon" />
+          <p style="margin: 12px 0 0;">No datasets yet. Create the first collection.</p>
+        </div>
+
+        <div id="datasets" phx-update="stream" style="display: grid; gap: 12px;">
+          <article
+            :for={{dom_id, dataset} <- @streams.datasets}
+            id={dom_id}
+            class="aludel-card"
+            style="display: flex; justify-content: space-between; gap: 16px; align-items: center;"
+          >
+            <div style="min-width: 0;">
+              <.link
+                navigate={aludel_path("datasets/#{dataset.id}")}
+                style="font-size: 16px; font-weight: 600; text-decoration: none;"
+              >
+                {dataset.name}
+              </.link>
+              <p style="margin: 5px 0 0; color: var(--text-secondary); font-size: 13px;">
+                {dataset.description || "No description"}
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-shrink: 0;">
+              <.link navigate={aludel_path("datasets/#{dataset.id}")} class="button-secondary">
+                Open
+              </.link>
+              <button
+                id={"delete-dataset-#{dataset.id}"}
+                type="button"
+                phx-click="delete"
+                phx-value-id={dataset.id}
+                class="button-danger"
+              >
+                Delete
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+  </div>
+</Layouts.app>
