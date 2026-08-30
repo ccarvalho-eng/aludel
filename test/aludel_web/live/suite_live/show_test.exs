@@ -96,6 +96,12 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
 
       assert has_element?(view, "#suite-dataset-id option[value='#{dataset.id}']", dataset.name)
       assert has_element?(view, "#populate-suite-from-dataset-form")
+
+      assert has_element?(
+               view,
+               "#dataset-entry-submit-wrapper.mb-3 > #populate-suite-from-dataset.h-10"
+             )
+
       assert Datasets.list_datasets() == [dataset]
     end
   end

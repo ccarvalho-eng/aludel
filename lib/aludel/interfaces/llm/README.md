@@ -15,7 +15,10 @@ lib/aludel/interfaces/
     │   ├── openai.ex
     │   ├── anthropic.ex
     │   ├── google.ex
-    │   └── ollama.ex
+    │   ├── ollama.ex
+    │   ├── xai.ex
+    │   ├── groq.ex
+    │   └── openrouter.ex
     ├── behaviour.ex            # Provider contract
     ├── config.ex               # HTTP adapter + API key utils
     └── error_parser.ex
@@ -71,9 +74,16 @@ Register in `lib/aludel/interfaces/llm.ex`:
   openai: OpenAI,
   anthropic: Anthropic,
   ollama: Ollama,
-  google: Google
+  google: Google,
+  xai: XAI,
+  groq: Groq,
+  openrouter: OpenRouter
 }
 ```
+
+Provider credentials are loaded from application configuration. The supported environment
+variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `XAI_API_KEY`,
+`GROQ_API_KEY`, and `OPENROUTER_API_KEY`. Ollama does not require an API key.
 
 ## Swapping HTTP Client
 

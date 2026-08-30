@@ -93,6 +93,9 @@ defmodule Aludel.Providers do
       "anthropic" -> fetch_model_groups(:anthropic)
       "ollama" -> fetch_model_groups(:ollama)
       "google" -> fetch_model_groups(:google)
+      "xai" -> fetch_model_groups(:xai)
+      "groq" -> fetch_model_groups(:groq)
+      "openrouter" -> fetch_model_groups(:openrouter)
       _ -> %{active: [], deprecated: []}
     end
   end
@@ -100,12 +103,27 @@ defmodule Aludel.Providers do
   def fetch_model_groups(provider_type) when is_atom(provider_type) do
     # credo:disable-for-lines:2 Credo.Check.Refactor.Apply
     LLMDB
-    |> apply(:models, [])
-    |> Enum.filter(&(&1.provider == provider_type))
+    |> apply(:models, [provider_type])
+    |> Enum.filter(&text_generation_model?/1)
     |> Enum.map(&normalize_model/1)
     |> group_models()
   rescue
     _ -> %{active: [], deprecated: []}
+  end
+
+  @doc false
+  @spec text_generation_model?(map()) :: boolean()
+  def text_generation_model?(%{capabilities: %{chat: true}}) do
+    true
+  end
+
+  def text_generation_model?(%{modalities: %{input: input, output: output}})
+      when is_list(input) and is_list(output) do
+    :text in input and :text in output
+  end
+
+  def text_generation_model?(_model) do
+    false
   end
 
   @doc false

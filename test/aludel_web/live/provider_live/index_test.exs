@@ -54,6 +54,22 @@ defmodule Aludel.Web.ProviderLive.IndexTest do
       assert has_element?(view, "#providers-#{provider.id}", "Gemini Flash")
       assert has_element?(view, ".provider-icon-google")
     end
+
+    test "displays xAI with its icon and Groq with the fallback icon", %{conn: conn} do
+      xai = provider_fixture(%{name: "xAI Grok", provider: :xai, model: "grok-4"})
+
+      groq =
+        provider_fixture(%{
+          name: "Groq Llama",
+          provider: :groq,
+          model: "llama-3.3-70b-versatile"
+        })
+
+      {:ok, view, _html} = live(conn, "/providers")
+
+      assert has_element?(view, "#providers-#{xai.id} .provider-icon-xai")
+      assert has_element?(view, "#providers-#{groq.id} .provider-icon-fallback-groq")
+    end
   end
 
   describe "delete functionality" do

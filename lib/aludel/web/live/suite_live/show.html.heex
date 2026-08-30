@@ -178,9 +178,16 @@
             prompt="Choose a dataset"
             options={Enum.map(@datasets, &{&1.name, &1.id})}
           />
-          <button type="submit" class="button-secondary" disabled={@datasets == []}>
-            Add entries
-          </button>
+          <div id="dataset-entry-submit-wrapper" class={["mb-3"]}>
+            <button
+              id="populate-suite-from-dataset"
+              type="submit"
+              class={["button-secondary", "h-10"]}
+              disabled={@datasets == []}
+            >
+              Add entries
+            </button>
+          </div>
         </.form>
         <p
           :if={@dataset_import_status}

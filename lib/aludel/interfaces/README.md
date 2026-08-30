@@ -13,7 +13,11 @@ lib/aludel/interfaces/
 │   ├── providers/
 │   │   ├── openai.ex
 │   │   ├── anthropic.ex
-│   │   └── ollama.ex
+│   │   ├── google.ex
+│   │   ├── ollama.ex
+│   │   ├── xai.ex
+│   │   ├── groq.ex
+│   │   └── openrouter.ex
 │   ├── adapters/http/
 │   │   └── default.ex              # ReqLLM + telemetry
 │   ├── config.ex

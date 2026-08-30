@@ -6,11 +6,9 @@ defmodule Mix.Tasks.Aludel.Seed do
 
       mix aludel.seed
 
-  This task will populate your database with sample Aludel data including:
-  - Default providers (Ollama, OpenAI)
-  - Sample prompts for testing
-  - Evaluation suites with test cases
-  - Demo evolution data across multiple versions
+  This task populates a development database with deterministic demo data,
+  including datasets, realistic AI outputs, individual runs, suite runs,
+  evaluation metrics, and prompt evolution history.
   """
 
   use Mix.Task
@@ -19,6 +17,10 @@ defmodule Mix.Tasks.Aludel.Seed do
 
   @impl Mix.Task
   def run(_args) do
+    if Mix.env() == :prod do
+      Mix.raise("mix aludel.seed is disabled in production")
+    end
+
     Mix.Task.run("app.start")
 
     seeds_path = Path.join(:code.priv_dir(:aludel), "repo/seeds.exs")
