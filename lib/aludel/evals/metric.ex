@@ -10,6 +10,14 @@ defmodule Aludel.Evals.Metric do
 
   @default_threshold 100.0
 
+  @type json_value ::
+          nil
+          | boolean()
+          | number()
+          | String.t()
+          | [json_value()]
+          | %{optional(String.t()) => json_value()}
+
   @callback type() :: String.t()
   @callback evaluate(String.t(), map()) :: Result.t()
 
@@ -24,7 +32,7 @@ defmodule Aludel.Evals.Metric do
     }
   end
 
-  @spec decode_json(String.t()) :: {:ok, Jason.decode_value()} | {:error, Jason.DecodeError.t()}
+  @spec decode_json(String.t()) :: {:ok, json_value()} | {:error, Jason.DecodeError.t()}
   def decode_json(output) do
     output
     |> String.trim()
