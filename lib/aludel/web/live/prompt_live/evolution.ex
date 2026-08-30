@@ -6,8 +6,9 @@ defmodule Aludel.Web.PromptLive.Evolution do
 
   use Aludel.Web, :live_view
 
+  alias Aludel.Evals
   alias Aludel.Prompts
-  alias Aludel.Prompts.Evolution
+  alias Aludel.Prompts.{Evolution, Optimization}
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -20,10 +21,14 @@ defmodule Aludel.Web.PromptLive.Evolution do
   end
 
   @impl Phoenix.LiveView
-  def handle_params(%{"id" => id}, _uri, socket) do
+  def handle_params(%{"id" => id} = params, _uri, socket) do
     prompt = Prompts.get_prompt!(id)
-    metrics = Prompts.get_evolution_metrics(id, days: 30)
+    suites = Evals.list_suites_for_prompt(id)
+    selected_suite = select_suite(suites, params["suite_id"])
+    metric_options = metric_options(selected_suite)
+    metrics = Prompts.get_evolution_metrics(id, metric_options)
     chart_data = Evolution.prepare_chart_data(metrics)
+    pareto_analysis = Optimization.analyze(metrics)
 
     # Reverse metrics for table display (descending order: newest first)
     reversed_metrics = Enum.reverse(metrics)
@@ -33,6 +38,9 @@ defmodule Aludel.Web.PromptLive.Evolution do
      |> assign(:page_title, "#{prompt.name} - Evolution")
      |> assign(:prompt, prompt)
      |> assign(:analysis_window, 30)
+     |> assign(:suites, suites)
+     |> assign(:selected_suite, selected_suite)
+     |> assign(:pareto_analysis, pareto_analysis)
      |> assign(:metrics, reversed_metrics)
      |> assign(:chart_data, chart_data)}
   end
@@ -73,6 +81,13 @@ defmodule Aludel.Web.PromptLive.Evolution do
 
   def handle_event("close_export_dropdown", _params, socket) do
     {:noreply, assign(socket, :show_export_dropdown, false)}
+  end
+
+  def handle_event("select_pareto_suite", %{"suite_id" => suite_id}, socket) do
+    {:noreply,
+     push_patch(socket,
+       to: aludel_path("prompts/#{socket.assigns.prompt.id}/evolution?suite_id=#{suite_id}")
+     )}
   end
 
   defp efficiency_state(%{efficiency_status: :no_passes}) do
@@ -119,5 +134,21 @@ defmodule Aludel.Web.PromptLive.Evolution do
     stability
     |> Atom.to_string()
     |> String.capitalize()
+  end
+
+  defp select_suite([], _suite_id) do
+    nil
+  end
+
+  defp select_suite(suites, suite_id) do
+    Enum.find(suites, &(&1.id == suite_id)) || List.first(suites)
+  end
+
+  defp metric_options(nil) do
+    [days: 30]
+  end
+
+  defp metric_options(suite) do
+    [days: 30, suite_id: suite.id]
   end
 end

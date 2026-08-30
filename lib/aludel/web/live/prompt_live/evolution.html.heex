@@ -89,6 +89,55 @@
         </div>
       </div>
     <% else %>
+      <section
+        id="pareto-frontier"
+        class="aludel-card"
+        style="margin-bottom: 24px; padding: 20px;"
+      >
+        <div style="display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 16px;">
+          <div>
+            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Pareto frontier</h2>
+            <p class="text-sm text-secondary" style="margin: 4px 0 0;">
+              Non-dominated quality, cost, and latency trade-offs
+            </p>
+          </div>
+          <form :if={@suites != []} id="pareto-suite-form" phx-change="select_pareto_suite">
+            <label for="pareto-suite" class="text-sm text-secondary">Evaluation suite</label>
+            <select id="pareto-suite" name="suite_id" style="display: block; margin-top: 4px;">
+              <option
+                :for={suite <- @suites}
+                value={suite.id}
+                selected={@selected_suite && suite.id == @selected_suite.id}
+              >
+                {suite.name}
+              </option>
+            </select>
+          </form>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px;">
+          <article
+            :for={candidate <- @pareto_analysis.candidates}
+            id={"pareto-version-#{candidate.version_number}"}
+            data-pareto-status={candidate.pareto_status}
+            style="padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary);"
+          >
+            <div style="display: flex; justify-content: space-between; gap: 8px;">
+              <strong>v{candidate.version_number}</strong>
+              <span class="tag">
+                {if candidate.pareto_status == :frontier,
+                  do: "Frontier",
+                  else: candidate.pareto_status}
+              </span>
+            </div>
+            <div class="text-sm text-secondary" style="margin-top: 10px;">
+              <div>Pass rate: {candidate.avg_pass_rate || "Unavailable"}%</div>
+              <div>Cost / pass: {format_cost_per_pass(candidate)}</div>
+              <div>Latency / pass: {format_latency_per_pass(candidate)}</div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <div class="aludel-card" style="margin-bottom: 24px;">
         <div style="padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
           <div style="display: flex; align-items: center; gap: 10px;">

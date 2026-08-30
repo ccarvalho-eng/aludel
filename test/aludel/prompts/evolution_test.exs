@@ -307,6 +307,35 @@ defmodule Aludel.Prompts.EvolutionTest do
       assert v2_metric.signals.stability == :volatile
       assert v2_metric.signals.regressions == [:quality, :cost, :latency]
     end
+
+    test "scopes metrics to one evaluation suite" do
+      prompt = prompt_fixture()
+      provider = provider_fixture()
+      {:ok, version} = Prompts.create_prompt_version(prompt, "Version 1")
+      selected_suite = suite_fixture(%{prompt_id: prompt.id})
+      other_suite = suite_fixture(%{prompt_id: prompt.id})
+
+      for {suite, passed, failed} <- [
+            {selected_suite, 9, 1},
+            {other_suite, 0, 10}
+          ] do
+        {:ok, _suite_run} =
+          Evals.create_suite_run(%{
+            suite_id: suite.id,
+            prompt_version_id: version.id,
+            provider_id: provider.id,
+            passed: passed,
+            failed: failed,
+            avg_cost_usd: Decimal.new("0.01"),
+            avg_latency_ms: 200
+          })
+      end
+
+      [metric] = Evolution.get_metrics(prompt.id, suite_id: selected_suite.id)
+
+      assert metric.total_runs == 1
+      assert metric.avg_pass_rate == 90.0
+    end
   end
 
   describe "calculate_avg_cost from suite_runs" do

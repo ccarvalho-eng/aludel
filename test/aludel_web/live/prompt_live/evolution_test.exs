@@ -243,6 +243,37 @@ defmodule Aludel.Web.PromptLive.EvolutionTest do
                "No passing tests"
              )
     end
+
+    test "renders a suite-scoped Pareto frontier with trade-offs", %{conn: conn} do
+      prompt = prompt_fixture()
+      provider = provider_fixture()
+      {:ok, v1} = Prompts.create_prompt_version(prompt, "Version 1")
+      {:ok, v2} = Prompts.create_prompt_version(prompt, "Version 2")
+      suite = suite_fixture(%{prompt_id: prompt.id, name: "Regression Suite"})
+
+      for {version, passed, failed, cost, latency} <- [
+            {v1, 8, 2, "0.02", 300},
+            {v2, 9, 1, "0.01", 250}
+          ] do
+        {:ok, _suite_run} =
+          Aludel.Evals.create_suite_run(%{
+            suite_id: suite.id,
+            prompt_version_id: version.id,
+            provider_id: provider.id,
+            passed: passed,
+            failed: failed,
+            avg_cost_usd: Decimal.new(cost),
+            avg_latency_ms: latency
+          })
+      end
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}/evolution")
+
+      assert has_element?(view, "#pareto-suite", "Regression Suite")
+      assert has_element?(view, "#pareto-frontier")
+      assert has_element?(view, "#pareto-version-2[data-pareto-status='frontier']")
+      assert has_element?(view, "#pareto-version-1[data-pareto-status='dominated']")
+    end
   end
 
   describe "edge cases" do
