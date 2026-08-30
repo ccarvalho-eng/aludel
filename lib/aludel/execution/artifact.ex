@@ -95,6 +95,7 @@ defmodule Aludel.Execution.Artifact do
       "kind" => request.kind |> Atom.to_string(),
       "prompt_version" => normalize_prompt_version(request.prompt_version, false),
       "variables" => normalize_json(request.variables),
+      "messages" => normalize_json(Map.get(request, :messages, [])),
       "provider" => normalize_provider(request.provider),
       "documents" => Enum.map(documents, &normalize_document/1),
       "metadata" => normalize_json(Map.get(request, :metadata, %{}))

@@ -111,6 +111,42 @@ defmodule Aludel.Evals.TestCaseTest do
       assert {"Assertion at index 1: contains type requires a non-blank 'value' field", []} =
                changeset.errors[:assertions]
     end
+
+    test "accepts multi-turn messages and metadata" do
+      suite = suite_fixture()
+
+      changeset =
+        TestCase.changeset(%TestCase{}, %{
+          suite_id: suite.id,
+          variable_values: %{},
+          messages: [
+            %{"role" => "user", "content" => "Hello"},
+            %{"role" => "assistant", "content" => "Hi"},
+            %{"role" => "user", "content" => "Can you help?"}
+          ],
+          assertions: [],
+          metadata: %{"segment" => "support"}
+        })
+
+      assert changeset.valid?
+    end
+
+    test "rejects invalid messages and non-JSON metadata" do
+      suite = suite_fixture()
+
+      changeset =
+        TestCase.changeset(%TestCase{}, %{
+          suite_id: suite.id,
+          variable_values: %{},
+          messages: [%{"role" => "assistant", "content" => "No user turn"}],
+          assertions: [],
+          metadata: %{"pid" => self()}
+        })
+
+      refute changeset.valid?
+      assert "must end with a user turn" in errors_on(changeset).messages
+      assert "must be JSON-encodable" in errors_on(changeset).metadata
+    end
   end
 
   describe "associations" do

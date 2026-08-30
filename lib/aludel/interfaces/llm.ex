@@ -74,7 +74,7 @@ defmodule Aludel.LLM do
       iex> is_binary(result.output)
       true
   """
-  @spec call(Provider.t(), String.t(), keyword()) ::
+  @spec call(Provider.t(), String.t() | [map()], keyword()) ::
           {:ok, llm_result()} | {:error, error_reason()}
   def call(%Provider{} = provider, prompt, opts \\ []) do
     start_time = System.monotonic_time(:millisecond)

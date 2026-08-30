@@ -478,6 +478,46 @@ defmodule Aludel.EvalsTest do
   end
 
   describe "execute_suite/3" do
+    test "executes multi-turn cases with the rendered prompt as system context" do
+      expect(HttpClientMock, :request, fn _model, messages, _opts ->
+        assert messages == [
+                 %{role: :system, content: "Answer in a calm tone"},
+                 %{role: :user, content: "My name is Alice"},
+                 %{role: :assistant, content: "Hello Alice"},
+                 %{role: :user, content: "What is my name?"}
+               ]
+
+        {:ok, build_mock_response("Your name is Alice", 12, 5)}
+      end)
+
+      suite = suite_fixture()
+      prompt = prompt_fixture()
+      {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Answer in a {{tone}} tone")
+      provider = provider_fixture()
+
+      _test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          variable_values: %{"tone" => "calm", "name" => "Alice"},
+          messages: [
+            %{"role" => "user", "content" => "My name is {{name}}"},
+            %{"role" => "assistant", "content" => "Hello {{name}}"},
+            %{"role" => "user", "content" => "What is my name?"}
+          ],
+          assertions: [%{"type" => "contains", "value" => "Alice"}]
+        })
+
+      assert {:ok, suite_run} = Evals.execute_suite(suite, version, provider)
+      assert suite_run.passed == 1
+      assert [result] = suite_run.results
+
+      assert result["artifacts"]["steps"] |> hd() |> get_in(["input", "messages"]) == [
+               %{"role" => "user", "content" => "My name is Alice"},
+               %{"role" => "assistant", "content" => "Hello Alice"},
+               %{"role" => "user", "content" => "What is my name?"}
+             ]
+    end
+
     test "execute_suite captures avg_cost_usd and avg_latency_ms" do
       mock_response = build_mock_response("Mock response", 5, 10)
 
