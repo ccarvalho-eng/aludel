@@ -224,6 +224,89 @@ defmodule Aludel.Prompts.EvolutionTest do
       assert anthropic.avg_latency_ms == 420
       assert Decimal.equal?(anthropic.avg_score, Decimal.new("95.0"))
     end
+
+    test "computes outcome-weighted efficiency overall and by provider" do
+      prompt = prompt_fixture()
+      provider = provider_fixture(%{name: "Efficient Provider"})
+      {:ok, version} = Prompts.create_prompt_version(prompt, "Test {{var}}")
+      suite = suite_fixture(%{prompt_id: prompt.id})
+
+      {:ok, _suite_run} =
+        Evals.create_suite_run(%{
+          suite_id: suite.id,
+          prompt_version_id: version.id,
+          provider_id: provider.id,
+          passed: 5,
+          failed: 5,
+          avg_cost_usd: Decimal.new("0.01"),
+          avg_latency_ms: 200
+        })
+
+      [metric] = Evolution.get_metrics(prompt.id)
+      [breakdown] = metric.provider_breakdown
+
+      assert metric.cost_per_passed_test == 0.02
+      assert metric.latency_per_passed_test == 400.0
+      assert metric.efficiency_status == :available
+      assert breakdown.cost_per_passed_test == 0.02
+      assert breakdown.latency_per_passed_test == 400.0
+    end
+
+    test "marks zero-pass efficiency as unavailable" do
+      prompt = prompt_fixture()
+      provider = provider_fixture()
+      {:ok, version} = Prompts.create_prompt_version(prompt, "Test {{var}}")
+      suite = suite_fixture(%{prompt_id: prompt.id})
+
+      {:ok, _suite_run} =
+        Evals.create_suite_run(%{
+          suite_id: suite.id,
+          prompt_version_id: version.id,
+          provider_id: provider.id,
+          passed: 0,
+          failed: 5,
+          avg_cost_usd: Decimal.new("0.01"),
+          avg_latency_ms: 200
+        })
+
+      [metric] = Evolution.get_metrics(prompt.id)
+
+      assert metric.efficiency_status == :no_passes
+      assert metric.cost_per_passed_test == nil
+      assert metric.latency_per_passed_test == nil
+    end
+
+    test "adds stability and adjacent-version regression signals" do
+      prompt = prompt_fixture()
+      provider = provider_fixture()
+      {:ok, v1} = Prompts.create_prompt_version(prompt, "Version 1")
+      {:ok, v2} = Prompts.create_prompt_version(prompt, "Version 2")
+      suite = suite_fixture(%{prompt_id: prompt.id})
+
+      for {version, passed, failed, cost, latency} <- [
+            {v1, 10, 0, "0.01", 100},
+            {v1, 10, 0, "0.01", 100},
+            {v2, 10, 0, "0.02", 130},
+            {v2, 0, 10, "0.02", 130}
+          ] do
+        {:ok, _suite_run} =
+          Evals.create_suite_run(%{
+            suite_id: suite.id,
+            prompt_version_id: version.id,
+            provider_id: provider.id,
+            passed: passed,
+            failed: failed,
+            avg_cost_usd: Decimal.new(cost),
+            avg_latency_ms: latency
+          })
+      end
+
+      [_v1_metric, v2_metric] = Evolution.get_metrics(prompt.id)
+
+      assert v2_metric.pass_rate_stddev == 50.0
+      assert v2_metric.signals.stability == :volatile
+      assert v2_metric.signals.regressions == [:quality, :cost, :latency]
+    end
   end
 
   describe "calculate_avg_cost from suite_runs" do

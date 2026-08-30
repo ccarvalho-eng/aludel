@@ -228,9 +228,9 @@ defmodule Aludel.Prompts do
 
   Includes pass rates, cost, latency, and per-provider breakdown.
   """
-  @spec get_evolution_metrics(binary()) :: [map()]
-  def get_evolution_metrics(prompt_id) do
-    Evolution.get_metrics(prompt_id)
+  @spec get_evolution_metrics(binary(), keyword()) :: [map()]
+  def get_evolution_metrics(prompt_id, opts \\ []) do
+    Evolution.get_metrics(prompt_id, opts)
   end
 
   # Private functions

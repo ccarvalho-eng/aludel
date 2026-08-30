@@ -1,6 +1,8 @@
 defmodule Aludel.Prompts.Evolution.Deltas do
   @moduledoc false
 
+  alias Aludel.Stats.Signals
+
   @delta_keys [:pass_rate, :cost_usd, :latency_ms]
 
   @spec annotate([map()]) :: [map()]
@@ -24,12 +26,34 @@ defmodule Aludel.Prompts.Evolution.Deltas do
       |> provider_breakdown()
       |> Enum.map(fn provider_metrics ->
         previous_provider = Map.get(previous_providers, provider_metrics.provider_id)
-        Map.put(provider_metrics, :deltas, build_deltas(provider_metrics, previous_provider))
+
+        provider_metrics
+        |> Map.put(:deltas, build_deltas(provider_metrics, previous_provider))
+        |> Map.put(:signals, build_signals(provider_metrics, previous_provider))
       end)
 
     metric
     |> Map.put(:deltas, build_deltas(metric, previous_metric))
+    |> Map.put(:signals, build_signals(metric, previous_metric))
     |> Map.put(:provider_breakdown, provider_breakdown)
+  end
+
+  defp build_signals(current, previous) do
+    Signals.compare(signal_metrics(current), signal_metrics(previous))
+  end
+
+  defp signal_metrics(nil) do
+    %{}
+  end
+
+  defp signal_metrics(metric) do
+    %{
+      pass_rate: metric[:avg_pass_rate],
+      cost_per_passed_test: metric[:cost_per_passed_test],
+      avg_latency_ms: metric[:avg_latency_ms],
+      pass_rate_stddev: metric[:pass_rate_stddev],
+      stability_sample_size: metric[:stability_sample_size]
+    }
   end
 
   defp build_deltas(_current, nil) do

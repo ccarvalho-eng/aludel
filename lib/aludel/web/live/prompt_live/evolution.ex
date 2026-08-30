@@ -22,7 +22,7 @@ defmodule Aludel.Web.PromptLive.Evolution do
   @impl Phoenix.LiveView
   def handle_params(%{"id" => id}, _uri, socket) do
     prompt = Prompts.get_prompt!(id)
-    metrics = Prompts.get_evolution_metrics(id)
+    metrics = Prompts.get_evolution_metrics(id, days: 30)
     chart_data = Evolution.prepare_chart_data(metrics)
 
     # Reverse metrics for table display (descending order: newest first)
@@ -32,6 +32,7 @@ defmodule Aludel.Web.PromptLive.Evolution do
      socket
      |> assign(:page_title, "#{prompt.name} - Evolution")
      |> assign(:prompt, prompt)
+     |> assign(:analysis_window, 30)
      |> assign(:metrics, reversed_metrics)
      |> assign(:chart_data, chart_data)}
   end
@@ -72,5 +73,51 @@ defmodule Aludel.Web.PromptLive.Evolution do
 
   def handle_event("close_export_dropdown", _params, socket) do
     {:noreply, assign(socket, :show_export_dropdown, false)}
+  end
+
+  defp efficiency_state(%{efficiency_status: :no_passes}) do
+    "no-passes"
+  end
+
+  defp efficiency_state(%{efficiency_status: :no_tests}) do
+    "no-tests"
+  end
+
+  defp efficiency_state(_metric) do
+    "available"
+  end
+
+  defp format_cost_per_pass(%{efficiency_status: :no_passes}) do
+    "No passing tests"
+  end
+
+  defp format_cost_per_pass(%{cost_per_passed_test: nil}) do
+    "Unavailable"
+  end
+
+  defp format_cost_per_pass(metric) do
+    "$#{:erlang.float_to_binary(metric.cost_per_passed_test, decimals: 4)}"
+  end
+
+  defp format_latency_per_pass(%{efficiency_status: :no_passes}) do
+    "No passing tests"
+  end
+
+  defp format_latency_per_pass(%{latency_per_passed_test: nil}) do
+    "Unavailable"
+  end
+
+  defp format_latency_per_pass(metric) do
+    "#{round(metric.latency_per_passed_test)}ms"
+  end
+
+  defp stability_label(:insufficient_data) do
+    "Needs more runs"
+  end
+
+  defp stability_label(stability) do
+    stability
+    |> Atom.to_string()
+    |> String.capitalize()
   end
 end

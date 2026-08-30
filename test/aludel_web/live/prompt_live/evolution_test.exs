@@ -190,6 +190,59 @@ defmodule Aludel.Web.PromptLive.EvolutionTest do
       assert Decimal.equal?(metric.avg_score, Decimal.new("82.5"))
       assert socket.assigns.chart_data.overall.scores == [82.5]
     end
+
+    test "renders efficiency and stability signals for recent version metrics", %{conn: conn} do
+      prompt = prompt_fixture()
+      provider = provider_fixture()
+      {:ok, version} = Prompts.create_prompt_version(prompt, "Test {{var}}")
+      suite = suite_fixture(%{prompt_id: prompt.id})
+
+      for {passed, failed} <- [{5, 0}, {0, 5}] do
+        {:ok, _suite_run} =
+          Aludel.Evals.create_suite_run(%{
+            suite_id: suite.id,
+            prompt_version_id: version.id,
+            provider_id: provider.id,
+            passed: passed,
+            failed: failed,
+            avg_cost_usd: Decimal.new("0.01"),
+            avg_latency_ms: 200
+          })
+      end
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}/evolution")
+
+      assert has_element?(view, "#evolution-window", "Last 30 days")
+      assert has_element?(view, "#evolution-stability-1", "Volatile")
+      assert has_element?(view, "#evolution-cost-per-pass-1", "$0.0200")
+      assert has_element?(view, "#evolution-latency-per-pass-1", "400ms")
+    end
+
+    test "renders explicit zero-pass efficiency state", %{conn: conn} do
+      prompt = prompt_fixture()
+      provider = provider_fixture()
+      {:ok, version} = Prompts.create_prompt_version(prompt, "Test {{var}}")
+      suite = suite_fixture(%{prompt_id: prompt.id})
+
+      {:ok, _suite_run} =
+        Aludel.Evals.create_suite_run(%{
+          suite_id: suite.id,
+          prompt_version_id: version.id,
+          provider_id: provider.id,
+          passed: 0,
+          failed: 5,
+          avg_cost_usd: Decimal.new("0.01"),
+          avg_latency_ms: 200
+        })
+
+      {:ok, view, _html} = live(conn, "/prompts/#{prompt.id}/evolution")
+
+      assert has_element?(
+               view,
+               "#evolution-cost-per-pass-1[data-state='no-passes']",
+               "No passing tests"
+             )
+    end
   end
 
   describe "edge cases" do
