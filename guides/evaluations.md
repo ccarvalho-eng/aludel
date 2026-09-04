@@ -142,6 +142,37 @@ For common checks, replace `rubric` with a versioned built-in `template`:
 
 Templates and custom rubrics are mutually exclusive. Aludel records the resolved rubric and template version with each result, so a historical run retains the criteria it used.
 
+### Inspect metric context and evaluator details
+
+Suite execution gives every metric a normalized `Aludel.Evals.Metric.Context` containing the generated output, rendered input, prompt template, variables, messages, documents, metadata, provider, prompt version, and execution details. Expected references remain in assertion configuration. Direct callers can also set `expected` on the context.
+
+Direct callers can use the same contract:
+
+```elixir
+alias Aludel.Evals.AssertionEvaluator
+alias Aludel.Evals.Metric.Context
+
+context =
+  Context.new("Paris",
+    expected: "Paris",
+    rendered_input: "What is the capital of France?",
+    variables: %{"country" => "France"},
+    metadata: %{"category" => "geography"}
+  )
+
+result =
+  AssertionEvaluator.evaluate(context, %{
+    "type" => "contains",
+    "value" => "Paris"
+  })
+```
+
+Passing a string as the first argument remains supported for metrics that only need generated text.
+
+Every assertion result has an `evaluator` map. Deterministic metrics record `status: "completed"` and measured `duration_ms`. Model-backed judges also record their provider, model, input and output tokens, and cost independently from the model being evaluated.
+
+Evaluator status is one of `completed`, `error`, or `unavailable`. Failures use stable structured error types without retaining exception messages, provider response bodies, credentials, or other sensitive details. This keeps a failed evaluator distinct from an assertion that ran successfully and scored the output as failing.
+
 ### Repeat nondeterministic cases
 
 Run each test case more than once when a single model response is not reliable enough to make a decision:
