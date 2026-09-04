@@ -24,6 +24,7 @@ defmodule Aludel.Datasets.DatasetEntry do
     field :assertions, {:array, :map}, default: []
     field :metadata, :map, default: %{}
     field :position, :integer
+    field :red_team_deduplication_key, :string
 
     belongs_to :dataset, Dataset
 
@@ -52,6 +53,9 @@ defmodule Aludel.Datasets.DatasetEntry do
     |> validate_payload()
     |> foreign_key_constraint(:dataset_id)
     |> unique_constraint(:position, name: :dataset_entries_dataset_id_position_index)
+    |> unique_constraint(:red_team_deduplication_key,
+      name: :dataset_entries_red_team_deduplication_index
+    )
   end
 
   @spec conversation_kind(t()) :: :single_turn | :multi_turn
