@@ -2,6 +2,12 @@ defmodule Mix.Tasks.Aludel.Eval do
   @moduledoc """
   Runs one Aludel evaluation suite and emits a report.
 
+      mix aludel.eval --file path/to/suite.yaml
+
+  A schema-version-1 JSON or YAML manifest can identify the persisted suite,
+  prompt version, provider, and optional repeated-sampling settings. Individual
+  target flags remain available:
+
       mix aludel.eval \
         --suite-id SUITE_ID \
         --prompt-version-id PROMPT_VERSION_ID \
@@ -24,12 +30,13 @@ defmodule Mix.Tasks.Aludel.Eval do
   use Mix.Task
 
   alias Aludel.Evals
-  alias Aludel.Evals.{Report, Reporter}
+  alias Aludel.Evals.{FileSuite, Report, Reporter}
   alias Aludel.Prompts
   alias Aludel.Providers
 
   @schema_version 2
   @switches [
+    file: :string,
     suite_id: :string,
     prompt_version_id: :string,
     provider_id: :string,
@@ -38,7 +45,7 @@ defmodule Mix.Tasks.Aludel.Eval do
     pretty: :boolean,
     include_output: :boolean
   ]
-  @required_options [:suite_id, :prompt_version_id, :provider_id]
+  @target_options [:suite_id, :prompt_version_id, :provider_id]
   @reporters %{
     "console" => :console,
     "github" => :github,
@@ -64,13 +71,32 @@ defmodule Mix.Tasks.Aludel.Eval do
 
   defp parse_options(args) do
     case OptionParser.parse(args, strict: @switches) do
-      {options, [], []} -> validate_required_options(options)
+      {options, [], []} -> validate_target_options(options)
       {_options, _positional, _invalid} -> {:error, cli_error("invalid_arguments", usage())}
     end
   end
 
-  defp validate_required_options(options) do
-    missing_options = Enum.reject(@required_options, &Keyword.has_key?(options, &1))
+  defp validate_target_options(options) do
+    file? = Keyword.has_key?(options, :file)
+    supplied_targets = Enum.filter(@target_options, &Keyword.has_key?(options, &1))
+
+    cond do
+      file? and supplied_targets != [] ->
+        {:error,
+         cli_error("invalid_arguments", "--file cannot be combined with target ID options")}
+
+      file? ->
+        options
+        |> Map.new()
+        |> validate_reporter()
+
+      true ->
+        validate_individual_targets(options, supplied_targets)
+    end
+  end
+
+  defp validate_individual_targets(options, supplied_targets) do
+    missing_options = @target_options -- supplied_targets
 
     if missing_options == [] do
       options
@@ -84,6 +110,13 @@ defmodule Mix.Tasks.Aludel.Eval do
 
   defp execute({:error, error}) do
     {:error, error}
+  end
+
+  defp execute({:ok, %{file: path} = options}) do
+    case FileSuite.load_and_execute(path) do
+      {:ok, suite_run} -> {:ok, Report.from_suite_run(suite_run), options}
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp execute({:ok, options}) do
@@ -225,7 +258,8 @@ defmodule Mix.Tasks.Aludel.Eval do
   end
 
   defp usage do
-    "Usage: mix aludel.eval --suite-id ID --prompt-version-id ID --provider-id ID " <>
+    "Usage: mix aludel.eval (--file PATH | " <>
+      "--suite-id ID --prompt-version-id ID --provider-id ID) " <>
       "[--format console|github|json|junit] [--output PATH] [--pretty] [--include-output]"
   end
 end

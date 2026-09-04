@@ -125,12 +125,13 @@ Aludel provides:
 - JSON exports for suite runs, including assertions, retries, callback metadata, and artifacts
 - JSON and CSV exports for prompt evolution metrics and provider breakdowns
 - `Aludel.ExUnit` assertions for inline generated output, existing suite runs, and execute-and-persist quality gates
+- schema-versioned JSON and YAML execution manifests that reference persisted suites without duplicating dataset ownership
 - `Aludel.Evals.Reporter` with console, schema-version-2 JSON, JUnit XML, GitHub annotation, and custom reporter support
-- `mix aludel.eval` for headless suite execution and optional report file output
+- `mix aludel.eval` for identifier-based or manifest-based headless suite execution and optional report file output
 
-The Mix task emits JSON by default and accepts `--format console|json|junit|github`, `--output PATH`, JSON-only `--pretty`, and JUnit-only `--include-output`. It exits unsuccessfully for invalid targets, execution errors, empty suites, or a non-passing active quality gate. The normalized report model keeps each output format independent from suite-run persistence.
+The Mix task accepts either `--file PATH` or the three target ID flags. It emits JSON by default and accepts `--format console|json|junit|github`, `--output PATH`, JSON-only `--pretty`, and JUnit-only `--include-output`. It exits unsuccessfully for invalid manifests or targets, execution errors, empty suites, or a non-passing active quality gate. The normalized report model keeps each output format independent from suite-run persistence.
 
-See the [ExUnit evaluation guide](ex_unit.html) for application-test examples and the [reporter guide](reporters.html) for output formats, CI configuration, and custom reporter modules.
+See the [file-based suite guide](file_suites.html) for manifest examples, the [ExUnit evaluation guide](ex_unit.html) for application-test examples, and the [reporter guide](reporters.html) for output formats, CI configuration, and custom reporter modules.
 
 ## Execution modes
 
