@@ -4,6 +4,27 @@ defmodule Aludel.Evals.MetricTest do
   alias Aludel.Evals.AssertionEvaluator
   alias Aludel.Evals.Metric.Context
   alias Aludel.Evals.Metric.Registry
+  alias Aludel.Evals.Metric.Runner
+
+  defmodule RaisingMetric do
+    def type do
+      "raising"
+    end
+
+    def evaluate(_input, _assertion) do
+      raise "sensitive evaluator detail"
+    end
+  end
+
+  defmodule InvalidResultMetric do
+    def type do
+      "invalid_result"
+    end
+
+    def evaluate(_input, _assertion) do
+      :invalid
+    end
+  end
 
   describe "registry" do
     test "lists the supported metric types in form order" do
@@ -40,6 +61,66 @@ defmodule Aludel.Evals.MetricTest do
 
       assert result.passed
       assert result.score == 100.0
+      assert result.evaluator.status == :completed
+      assert is_number(result.evaluator.duration_ms)
+      assert result.evaluator.duration_ms >= 0
+    end
+  end
+
+  describe "evaluator execution details" do
+    test "serializes successful evaluator timing" do
+      result =
+        AssertionEvaluator.evaluate("hello world", %{
+          "type" => "contains",
+          "value" => "hello"
+        })
+
+      assert %{
+               "status" => "completed",
+               "duration_ms" => duration_ms
+             } = result["evaluator"]
+
+      assert is_number(duration_ms)
+      assert duration_ms >= 0
+      refute Map.has_key?(result["evaluator"], "error")
+    end
+
+    test "marks unsupported evaluators as unavailable" do
+      result = AssertionEvaluator.evaluate("output", %{"type" => "missing"})
+
+      assert result["evaluator"] == %{
+               "status" => "unavailable",
+               "error" => %{
+                 "type" => "unsupported_metric",
+                 "message" => "Metric type is not registered"
+               }
+             }
+    end
+
+    test "isolates evaluator exceptions without persisting their messages" do
+      result = Runner.run(RaisingMetric, "output", %{})
+
+      assert result.passed == false
+      assert result.score == 0.0
+      assert result.reason == "Metric evaluation failed"
+      assert result.evaluator.status == :error
+
+      assert result.evaluator.error == %{
+               "type" => "evaluator_exception",
+               "message" => "Evaluator raised an exception"
+             }
+
+      refute inspect(result) =~ "sensitive evaluator detail"
+    end
+
+    test "normalizes invalid evaluator return values" do
+      result = Runner.run(InvalidResultMetric, "output", %{})
+
+      assert result.passed == false
+      assert result.score == 0.0
+      assert result.reason == "Metric returned an invalid result"
+      assert result.evaluator.status == :error
+      assert result.evaluator.error["type"] == "invalid_result"
     end
   end
 
@@ -106,7 +187,7 @@ defmodule Aludel.Evals.MetricTest do
         |> Context.new(metadata: %{"source" => "suite"})
         |> AssertionEvaluator.evaluate(%{"type" => "contains", "value" => "hello"})
 
-      assert contextual == legacy
+      assert Map.delete(contextual, "evaluator") == Map.delete(legacy, "evaluator")
     end
   end
 

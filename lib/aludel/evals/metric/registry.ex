@@ -7,6 +7,7 @@ defmodule Aludel.Evals.Metric.Registry do
   """
 
   alias Aludel.Evals.Metric.Context
+  alias Aludel.Evals.Metric.Runner
   alias Aludel.Evals.Metrics.Contains
   alias Aludel.Evals.Metrics.ExactMatch
   alias Aludel.Evals.Metrics.JSONDeepCompare
@@ -40,7 +41,7 @@ defmodule Aludel.Evals.Metric.Registry do
           {:ok, Aludel.Evals.Metric.Result.t()} | :error
   def evaluate(input, %{"type" => type} = assertion) do
     case fetch(type) do
-      {:ok, module} -> {:ok, module.evaluate(input, assertion)}
+      {:ok, module} -> {:ok, Runner.run(module, input, assertion)}
       :error -> :error
     end
   end
