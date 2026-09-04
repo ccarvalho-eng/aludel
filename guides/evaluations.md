@@ -314,3 +314,27 @@ The command emits one schema-version-2 JSON object by default:
 The task exits unsuccessfully when arguments or targets are invalid, the prompt version belongs to another prompt, execution cannot be persisted, the suite is empty, or the active quality gate does not pass.
 
 Choose `--format console`, `--format junit`, or `--format github` for a human-readable log, CI test report, or GitHub Actions annotations. Add `--output PATH` to write the report to a file, `--pretty` to pretty-print JSON, or JUnit-only `--include-output` when the artifact is appropriate for generated responses. See the [reporter guide](reporters.html) for complete examples and the custom reporter behavior.
+
+## 10. Gate evaluations in ExUnit
+
+Use `Aludel.ExUnit` when an evaluation belongs beside application behavior tests:
+
+```elixir
+defmodule MyApp.SupportAnswerTest do
+  use ExUnit.Case
+  use Aludel.ExUnit
+
+  test "keeps the response concise and grounded" do
+    output = MyApp.Support.answer("How do I reset my password?")
+
+    assert_evaluations(output, [
+      %{"type" => "contains", "value" => "reset link"},
+      %{"type" => "not_contains", "value" => "share your password"}
+    ])
+  end
+end
+```
+
+For a stored suite, `assert_suite_run/1` gates an existing result and `assert_suite/3` or `assert_suite/4` executes, persists, and gates a new run. Both use the same effective status as reporters and `mix aludel.eval`: a stored policy result wins when present, otherwise all cases must pass and the run must not be empty.
+
+Failure messages omit generated output and expected values. They include bounded, control-character-sanitized metric reasons, failed case identifiers, and non-passing policy rules. See the [ExUnit evaluation guide](ex_unit.html) for each helper, database sandbox guidance, and complete examples.
