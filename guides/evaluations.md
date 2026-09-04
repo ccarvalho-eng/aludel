@@ -291,12 +291,12 @@ mix aludel.eval \
   --provider-id PROVIDER_ID
 ```
 
-The command emits one JSON object:
+The command emits one schema-version-2 JSON object by default:
 
 ```json
 {
   "type": "aludel_eval",
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "passed",
   "suite_id": "SUITE_ID",
   "prompt_version_id": "PROMPT_VERSION_ID",
@@ -311,4 +311,6 @@ The command emits one JSON object:
 }
 ```
 
-The task exits unsuccessfully when arguments or targets are invalid, the prompt version belongs to another prompt, execution cannot be persisted, the suite is empty, or any test case fails.
+The task exits unsuccessfully when arguments or targets are invalid, the prompt version belongs to another prompt, execution cannot be persisted, the suite is empty, or the active quality gate does not pass.
+
+Choose `--format console`, `--format junit`, or `--format github` for a human-readable log, CI test report, or GitHub Actions annotations. Add `--output PATH` to write the report to a file, `--pretty` to pretty-print JSON, or JUnit-only `--include-output` when the artifact is appropriate for generated responses. See the [reporter guide](reporters.html) for complete examples and the custom reporter behavior.

@@ -33,6 +33,7 @@ defmodule Aludel.MixProject do
           "README.md",
           "guides/features.md",
           "guides/evaluations.md",
+          "guides/reporters.md",
           "guides/embedding.md",
           "CHANGELOG.md",
           "CONTRIBUTING.md",
@@ -42,6 +43,7 @@ defmodule Aludel.MixProject do
           Guides: [
             "guides/features.md",
             "guides/evaluations.md",
+            "guides/reporters.md",
             "guides/embedding.md"
           ],
           Project: ["CHANGELOG.md", "CONTRIBUTING.md", "LICENSE"]

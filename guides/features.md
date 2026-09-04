@@ -124,9 +124,12 @@ Aludel provides:
 - JSON exports for individual run results
 - JSON exports for suite runs, including assertions, retries, callback metadata, and artifacts
 - JSON and CSV exports for prompt evolution metrics and provider breakdowns
-- `mix aludel.eval` for headless suite execution
+- `Aludel.Evals.Reporter` with console, schema-version-2 JSON, JUnit XML, GitHub annotation, and custom reporter support
+- `mix aludel.eval` for headless suite execution and optional report file output
 
-The Mix task emits a versioned `aludel_eval` JSON envelope and exits unsuccessfully for invalid targets, execution errors, empty suites, or failed test cases. This makes the task suitable for CI quality gates.
+The Mix task emits JSON by default and accepts `--format console|json|junit|github`, `--output PATH`, JSON-only `--pretty`, and JUnit-only `--include-output`. It exits unsuccessfully for invalid targets, execution errors, empty suites, or a non-passing active quality gate. The normalized report model keeps each output format independent from suite-run persistence.
+
+See the [reporter guide](reporters.html) for output examples, CI configuration, and custom reporter modules.
 
 ## Execution modes
 
