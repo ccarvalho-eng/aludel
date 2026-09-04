@@ -2,8 +2,8 @@ defmodule Aludel.Runs.RunResult do
   @moduledoc """
   Schema for run results.
 
-  A run result captures the output and metrics from executing a run
-  against a specific provider.
+  A run result captures lifecycle state, output, metrics, callback metadata, and
+  normalized execution artifacts for one provider in a multi-provider run.
   """
 
   use Ecto.Schema

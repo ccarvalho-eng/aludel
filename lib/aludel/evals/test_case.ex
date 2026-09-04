@@ -2,14 +2,17 @@ defmodule Aludel.Evals.TestCase do
   @moduledoc """
   Schema for individual test cases within a suite.
 
-  Test cases define variable values to substitute into prompts
-  and assertions to validate the LLM output.
+  Test cases define prompt variable values, optional multi-turn messages,
+  metadata, document attachments, and assertions used to validate LLM output.
+  Cases imported from a reusable dataset retain source provenance.
 
   Supported assertion types:
   - contains: Check if output contains a specific string
   - not_contains: Check if output does not contain a string
   - regex: Match output against a regular expression
   - exact_match: Check for exact string match
+  - json_field: Compare a typed value at a dot-separated JSON path
+  - json_deep_compare: Score an expected JSON structure with an optional threshold
   """
 
   use Ecto.Schema

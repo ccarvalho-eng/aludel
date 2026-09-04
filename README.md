@@ -17,6 +17,9 @@ Aludel gives teams a clean way to evaluate prompt and model behavior without inv
 - Run evaluation suites with assertions, document attachments, and CSV or JSON test case imports.
 - Execute suites headlessly with machine-readable JSON output for CI workflows.
 - Route runs and suites through your app's real LLM workflow with callback execution.
+- Reuse single-turn and multi-turn datasets across suites with provenance and metadata filtering.
+- Find quality, cost, latency, stability, and regression trade-offs with rolling analytics and Pareto analysis.
+- Generate failure-grounded prompt suggestions, then explicitly accept or dismiss them.
 - Use it inside an existing Phoenix app or run it standalone.
 
 ## Why Aludel
@@ -28,6 +31,25 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 - **Regression coverage**: turn important scenarios into repeatable suites with assertions.
 - **Embedded app callbacks**: evaluate your production-facing workflow without rebuilding it in the dashboard.
 - **Phoenix-native deployment**: mount it in your app or run it as a standalone dashboard.
+
+## Feature Catalog
+
+| Area | Features |
+|---|---|
+| Dashboard | Rolling 7-day and 30-day comparisons, lifetime totals, activity history, recent evaluations, pass rates, weighted quality, cost efficiency, latency efficiency, stability, and regression signals |
+| Prompts | `{{variable}}` templates, immutable versions, tags, search, pagination, typed projects, version diffs, and provider-specific evolution history |
+| Providers | OpenAI, Anthropic, Google Gemini, Ollama, xAI, Groq, and OpenRouter; active and deprecated text-model discovery; custom model IDs; built-in or overridden pricing |
+| Runs | Multi-provider execution, concurrent or sequential dispatch, live status updates, partial-failure handling, normalized execution artifacts, result copy actions, and JSON exports |
+| Evaluation suites | Visual and JSON test-case editing, single-turn and multi-turn inputs, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
+| Assertions | `contains`, `not_contains`, `regex`, `exact_match`, typed `json_field`, and scored `json_deep_compare` with configurable thresholds |
+| Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, and idempotent suite population |
+| Prompt evolution | Version and provider trends, version-over-version deltas, suite-scoped Pareto frontiers, failure-grounded prompt suggestions, and explicit accept or dismiss decisions |
+| Automation and exports | JSON run and suite exports, CSV or JSON evolution exports, and `mix aludel.eval` with stable JSON output and CI-friendly exit status |
+| Execution and extension | Native provider calls, host-app callback execution, pluggable LLM, storage, and document-conversion boundaries, optional callback metadata, and configurable run concurrency |
+| Deployment | Embedded Phoenix dashboard, standalone app, Docker Compose, local/AWS S3/GCS document storage, custom auth/access resolvers, CSP nonce support, theming, and read-only mode |
+| Demo data | Deterministic prompts, providers, datasets, suites, runs, failures, artifacts, and 60 days of comparison history through `mix aludel.seed` |
+
+See the [complete feature guide](https://hexdocs.pm/aludel/features.html) for behavior, constraints, and examples.
 
 ## Structured Output Scoring
 
@@ -75,7 +97,7 @@ Aludel depends on PostgreSQL-specific features, including `JSONB`, `percentile_d
 ```elixir
 def deps do
   [
-    {:aludel, "~> 0.6.0"}
+    {:aludel, "~> 0.6.1"}
   ]
 end
 ```
@@ -179,6 +201,20 @@ In callback mode, the existing run and suite UI stays the same:
 - the run and suite screens show `Execution Mode`
 - missing token or cost metrics render as `N/A`
 - exports include callback metadata when present
+- normalized execution artifacts record the request shape, execution mode, output, metrics, and bounded error details
+
+Native multi-provider runs execute concurrently by default, with a maximum concurrency of three and a 120-second timeout. Hosts can choose sequential execution or tune those limits:
+
+```elixir
+config :aludel,
+  run_execution_mode: :concurrent
+
+config :aludel, :llm,
+  max_concurrency: 5,
+  request_timeout_ms: 120_000
+```
+
+Set `run_execution_mode: :sequential` when provider calls must not overlap.
 
 ### Headless suite execution
 
@@ -192,6 +228,8 @@ mix aludel.eval \
 ```
 
 The task exits unsuccessfully when its arguments or targets are invalid, execution cannot complete, the suite has no test cases, or any test case fails.
+
+Successful and failed executions emit a stable `aludel_eval` JSON envelope with a schema version, suite and provider identifiers, aggregate pass/fail, score, cost and latency data, plus individual assertion results.
 
 ### Standalone mode
 
@@ -214,6 +252,14 @@ mix aludel.seed
 ```
 
 Visit `http://localhost:4000`.
+
+The standalone release also supports optional HTTP Basic Authentication and read-only access:
+
+```bash
+export BASIC_AUTH_USER=admin
+export BASIC_AUTH_PASS=change-me
+export READ_ONLY=true
+```
 
 To smoke-test callback mode in the standalone app, configure a local executor module in `standalone/lib/aludel_dash.ex` or another module loaded by the standalone app, then add:
 
@@ -244,6 +290,8 @@ Aludel supports OpenAI, Anthropic, Google Gemini, Ollama, xAI, Groq, and OpenRou
 | Groq | Yes | Configure with `GROQ_API_KEY` |
 | OpenRouter | Yes | Configure with `OPENROUTER_API_KEY` |
 
+Provider forms discover active text-generation models from LLMDB, keep deprecated models available when editing existing configurations, and allow custom model IDs. Token costs use built-in per-model rates when available; custom input and output rates can be configured per provider.
+
 For embedded apps, configure provider keys in `config/runtime.exs`:
 
 ```elixir
@@ -264,6 +312,8 @@ Callback mode does not require Aludel to use those API keys directly, but provid
 ## Document Storage
 
 Uploaded test case documents go through `Aludel.Storage`. Documents can be attached while creating new suite test cases or while editing existing test cases.
+
+Supported uploads are PDF, PNG, JPEG, JSON, CSV, and plain text. Anthropic accepts PDFs natively; adapters that require images can use the configurable ImageMagick converter.
 
 - Development uses the local filesystem adapter from `config/dev.exs`.
 - Production uses `config/runtime.exs` and requires `ALUDEL_STORAGE_BACKEND`.
@@ -303,10 +353,21 @@ export GCS_USER_PROJECT=your-billing-project-id
 The GCS adapter uses `Goth` with standard Google application credentials.
 `GOOGLE_APPLICATION_CREDENTIALS_JSON` also works if you prefer inline JSON.
 
+## Evaluation Workflows
+
+Test cases can be authored in the visual assertion editor or as JSON. Suites support inline editing, document management, execution history, detailed assertion results, and retrying an individual failed result without rerunning the entire suite.
+
+Reusable datasets hold ordered single-turn or multi-turn entries. Each entry can include template variables, conversation messages, assertions, and arbitrary JSON metadata. Dataset pages support metadata filtering, and suite population preserves source provenance while skipping entries that were already imported into that suite.
+
+Prompt evolution combines suite history across versions and providers. The UI shows pass rate, structured-output score, cost, latency, version-over-version deltas, regression and stability signals, and a suite-scoped Pareto frontier. A failure reflection workflow can ask the selected provider for a variable-preserving prompt suggestion; accepting it creates a new immutable prompt version, while dismissal keeps the decision in history.
+
 ## Documentation
 
 The README is intentionally optimized for first contact. For deeper setup, usage, and contribution details:
 
+- [Feature Guide](https://hexdocs.pm/aludel/features.html)
+- [Evaluation Guide](https://hexdocs.pm/aludel/evaluations.html)
+- [Embedding Guide](https://hexdocs.pm/aludel/embedding.html)
 - [Wiki](https://github.com/ccarvalho-eng/aludel/wiki)
 - [HexDocs](https://hexdocs.pm/aludel)
 - [Contributing Guide](https://github.com/ccarvalho-eng/aludel/blob/main/CONTRIBUTING.md)

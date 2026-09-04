@@ -4,7 +4,7 @@ defmodule Aludel.MixProject do
   def project do
     [
       app: :aludel,
-      version: "0.6.0",
+      version: "0.6.1",
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -29,7 +29,23 @@ defmodule Aludel.MixProject do
       homepage_url: "https://github.com/ccarvalho-eng/aludel",
       docs: [
         main: "readme",
-        extras: ["README.md", "CONTRIBUTING.md", "LICENSE"]
+        extras: [
+          "README.md",
+          "guides/features.md",
+          "guides/evaluations.md",
+          "guides/embedding.md",
+          "CHANGELOG.md",
+          "CONTRIBUTING.md",
+          "LICENSE"
+        ],
+        groups_for_extras: [
+          Guides: [
+            "guides/features.md",
+            "guides/evaluations.md",
+            "guides/embedding.md"
+          ],
+          Project: ["CHANGELOG.md", "CONTRIBUTING.md", "LICENSE"]
+        ]
       ]
     ]
   end
@@ -59,7 +75,8 @@ defmodule Aludel.MixProject do
       name: "aludel",
       maintainers: ["Cristiano Carvalho"],
       licenses: ["Apache-2.0"],
-      files: ~w(lib priv/repo priv/static .formatter.exs mix.exs README* CHANGELOG* LICENSE*),
+      files:
+        ~w(lib priv/repo priv/static guides .formatter.exs mix.exs README* CHANGELOG* LICENSE*),
       links: %{
         "GitHub" => "https://github.com/ccarvalho-eng/aludel"
       }
@@ -90,6 +107,7 @@ defmodule Aludel.MixProject do
        depth: 1,
        only: [:dev, :test]},
       {:req, "~> 0.5"},
+      {:mint, "~> 1.10"},
       {:req_llm, "~> 1.0"},
       {:nimble_csv, "~> 1.2"},
       {:ex_aws, "~> 2.6"},
