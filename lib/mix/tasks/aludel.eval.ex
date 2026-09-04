@@ -8,7 +8,8 @@ defmodule Mix.Tasks.Aludel.Eval do
         --provider-id PROVIDER_ID
 
   The task exits unsuccessfully when arguments or targets are invalid, execution
-  cannot complete, the suite has no test cases, or any test case fails.
+  cannot complete, or the active suite quality policy does not pass. Suites
+  without a quality policy retain the all-test-cases-must-pass behavior.
   """
 
   @shortdoc "Runs an Aludel suite and emits JSON"
@@ -114,7 +115,7 @@ defmodule Mix.Tasks.Aludel.Eval do
 
   defp suite_run_payload(suite_run) do
     total = suite_run.passed + suite_run.failed
-    status = if suite_run.failed == 0 and total > 0, do: "passed", else: "failed"
+    status = evaluation_status(suite_run, total)
 
     %{
       type: "aludel_eval",
@@ -124,6 +125,7 @@ defmodule Mix.Tasks.Aludel.Eval do
       suite_id: suite_run.suite_id,
       prompt_version_id: suite_run.prompt_version_id,
       provider_id: suite_run.provider_id,
+      quality_policy: suite_run.quality_policy_result,
       summary: %{
         passed: suite_run.passed,
         failed: suite_run.failed,
@@ -137,9 +139,19 @@ defmodule Mix.Tasks.Aludel.Eval do
     }
   end
 
+  defp evaluation_status(%{quality_policy_result: %{"status" => status}}, _total)
+       when status in ["passed", "failed", "invalid", "unavailable"] do
+    status
+  end
+
+  defp evaluation_status(suite_run, total) do
+    if suite_run.failed == 0 and total > 0, do: "passed", else: "failed"
+  end
+
   defp result_payload(result) do
     %{
       test_case_id: result["test_case_id"],
+      test_case_metadata: result["test_case_metadata"],
       status: if(result["passed"], do: "passed", else: "failed"),
       passed: result["passed"],
       score: result["score"],

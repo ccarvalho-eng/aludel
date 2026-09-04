@@ -1,14 +1,16 @@
 defmodule Aludel.Evals do
   @moduledoc """
-  Context for managing evaluation suites, test cases, and runs.
+  Context for managing evaluation suites, test cases, quality policies, and runs.
   """
 
   import Ecto.Query
 
   alias Aludel.Evals.{
     AssertionEvaluator,
+    QualityPolicy,
     Sampling,
     Suite,
+    SuitePolicy,
     SuiteRun,
     SuiteRunner,
     TestCase,
@@ -97,6 +99,60 @@ defmodule Aludel.Evals do
       test_cases: {test_cases_query, [:documents, source_dataset_entry: :dataset]},
       prompt: []
     )
+  end
+
+  @doc """
+  Lists immutable quality policy versions for a suite, newest first.
+  """
+  @spec list_suite_policies(Suite.t()) :: [SuitePolicy.t()]
+  def list_suite_policies(%Suite{id: suite_id}) do
+    SuitePolicy
+    |> where([policy], policy.suite_id == ^suite_id)
+    |> order_by([policy], desc: policy.version)
+    |> repo().all()
+  end
+
+  @doc """
+  Returns the latest quality policy for a suite, or `nil` when none exists.
+  """
+  @spec latest_suite_policy(Suite.t()) :: SuitePolicy.t() | nil
+  def latest_suite_policy(%Suite{id: suite_id}) do
+    SuitePolicy
+    |> where([policy], policy.suite_id == ^suite_id)
+    |> order_by([policy], desc: policy.version)
+    |> limit(1)
+    |> repo().one()
+  end
+
+  @doc """
+  Creates the next immutable quality policy version for a suite.
+
+  Version assignment locks the parent suite row so concurrent writers cannot
+  create the same suite-local version.
+  """
+  @spec create_suite_policy(Suite.t(), map()) ::
+          {:ok, SuitePolicy.t()} | {:error, Changeset.t()}
+  def create_suite_policy(%Suite{id: suite_id}, definition) when is_map(definition) do
+    repo().transaction(fn ->
+      lock_suite!(suite_id)
+      version = next_suite_policy_version(suite_id)
+
+      %SuitePolicy{}
+      |> SuitePolicy.changeset(%{
+        suite_id: suite_id,
+        version: version,
+        definition: definition
+      })
+      |> repo().insert()
+      |> case do
+        {:ok, policy} -> policy
+        {:error, changeset} -> repo().rollback(changeset)
+      end
+    end)
+    |> case do
+      {:ok, policy} -> {:ok, policy}
+      {:error, %Changeset{} = changeset} -> {:error, changeset}
+    end
   end
 
   @doc """
@@ -314,7 +370,7 @@ defmodule Aludel.Evals do
   def get_suite_run_for_export!(id) do
     SuiteRun
     |> repo().get!(id)
-    |> repo().preload([:suite, :prompt_version, :provider])
+    |> repo().preload([:suite, :suite_policy, :prompt_version, :provider])
   end
 
   @doc """
@@ -322,7 +378,7 @@ defmodule Aludel.Evals do
   """
   @spec reload_suite_run_with_associations(SuiteRun.t()) :: SuiteRun.t()
   def reload_suite_run_with_associations(%SuiteRun{} = suite_run) do
-    repo().preload(suite_run, [:prompt_version, :provider], force: true)
+    repo().preload(suite_run, [:suite_policy, :prompt_version, :provider], force: true)
   end
 
   @doc """
@@ -367,10 +423,14 @@ defmodule Aludel.Evals do
         |> merge_retry_metadata(existing_result)
 
       updated_results = replace_suite_run_result(suite_run.results, test_case_id, retried_result)
+      summary = summarize_suite_results(updated_results)
+      policy = suite_policy_for_run(suite_run)
 
       suite_run
       |> SuiteRun.changeset(
-        Map.put(summarize_suite_results(updated_results), :results, updated_results)
+        summary
+        |> Map.put(:results, updated_results)
+        |> Map.merge(quality_policy_attrs(policy, updated_results, summary))
       )
       |> repo().update()
     end
@@ -386,7 +446,9 @@ defmodule Aludel.Evals do
   Executes a test suite against a prompt version and provider.
 
   Runs all test cases for the suite, evaluating their assertions
-  against the LLM output and creating a suite_run with results.
+  against the LLM output and creating a suite run with results. When the suite
+  has a quality policy, execution snapshots the latest immutable version before
+  any model requests and persists its evaluation with the run.
 
   ## Parameters
     - suite: The test suite to execute
@@ -408,6 +470,7 @@ defmodule Aludel.Evals do
       ) do
     with {:ok, sampling} <- Sampling.new(opts) do
       suite = repo().preload(suite, test_cases: :documents)
+      policy = latest_suite_policy(suite)
 
       results =
         Enum.map(suite.test_cases, &execute_test_case(&1, version, provider, sampling))
@@ -415,12 +478,14 @@ defmodule Aludel.Evals do
       summary = summarize_suite_results(results)
 
       create_suite_run(
-        Map.merge(summary, %{
+        summary
+        |> Map.merge(%{
           suite_id: suite.id,
           prompt_version_id: version.id,
           provider_id: provider.id,
           results: results
         })
+        |> Map.merge(quality_policy_attrs(policy, results, summary))
       )
     end
   end
@@ -539,7 +604,7 @@ defmodule Aludel.Evals do
         artifacts = Artifact.put_metrics(result.artifacts, assertion_results, score)
 
         successful_test_case_result(
-          test_case.id,
+          test_case,
           result,
           passed,
           score,
@@ -548,7 +613,7 @@ defmodule Aludel.Evals do
         )
 
       {:error, reason, artifacts} ->
-        failed_test_case_result(test_case.id, reason, artifacts)
+        failed_test_case_result(test_case, reason, artifacts)
     end
   end
 
@@ -594,7 +659,7 @@ defmodule Aludel.Evals do
   end
 
   defp successful_test_case_result(
-         test_case_id,
+         test_case,
          result,
          passed,
          score,
@@ -602,7 +667,8 @@ defmodule Aludel.Evals do
          artifacts
        ) do
     %{
-      "test_case_id" => test_case_id,
+      "test_case_id" => test_case.id,
+      "test_case_metadata" => test_case.metadata,
       "passed" => passed,
       "score" => score,
       "output" => result.output,
@@ -616,9 +682,10 @@ defmodule Aludel.Evals do
     }
   end
 
-  defp failed_test_case_result(test_case_id, reason, artifacts) do
+  defp failed_test_case_result(test_case, reason, artifacts) do
     %{
-      "test_case_id" => test_case_id,
+      "test_case_id" => test_case.id,
+      "test_case_metadata" => test_case.metadata,
       "passed" => false,
       "score" => nil,
       "output" => error_message(reason),
@@ -711,6 +778,44 @@ defmodule Aludel.Evals do
     Enum.map(results, fn result ->
       if result["test_case_id"] == test_case_id, do: replacement, else: result
     end)
+  end
+
+  defp quality_policy_attrs(nil, _results, _summary) do
+    %{suite_policy_id: nil, quality_policy_result: nil}
+  end
+
+  defp quality_policy_attrs(%SuitePolicy{} = policy, results, summary) do
+    policy_result =
+      policy.definition
+      |> QualityPolicy.evaluate(results, summary)
+      |> Map.put("policy_id", policy.id)
+      |> Map.put("policy_version", policy.version)
+
+    %{suite_policy_id: policy.id, quality_policy_result: policy_result}
+  end
+
+  defp suite_policy_for_run(%SuiteRun{suite_policy_id: nil}) do
+    nil
+  end
+
+  defp suite_policy_for_run(%SuiteRun{suite_policy_id: policy_id}) do
+    repo().get(SuitePolicy, policy_id)
+  end
+
+  defp lock_suite!(suite_id) do
+    Suite
+    |> where([suite], suite.id == ^suite_id)
+    |> lock("FOR UPDATE")
+    |> repo().one!()
+  end
+
+  defp next_suite_policy_version(suite_id) do
+    SuitePolicy
+    |> where([policy], policy.suite_id == ^suite_id)
+    |> select([policy], max(policy.version))
+    |> repo().one()
+    |> Kernel.||(0)
+    |> Kernel.+(1)
   end
 
   defp summarize_suite_results(results) do

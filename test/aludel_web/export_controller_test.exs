@@ -64,6 +64,23 @@ defmodule Aludel.Web.ExportControllerTest do
       provider = provider_fixture(%{name: "Suite Provider"})
       test_case = test_case_fixture(%{suite_id: suite.id})
 
+      {:ok, suite_policy} =
+        Aludel.Evals.create_suite_policy(suite, %{
+          "schema_version" => 1,
+          "rules" => [
+            %{"id" => "overall", "type" => "overall_pass_rate", "minimum" => 0.9}
+          ]
+        })
+
+      policy_result = %{
+        "schema_version" => 1,
+        "policy_id" => suite_policy.id,
+        "policy_version" => 1,
+        "status" => "passed",
+        "passed" => true,
+        "rules" => []
+      }
+
       suite_run =
         suite_run_fixture(%{
           suite_id: suite.id,
@@ -74,9 +91,12 @@ defmodule Aludel.Web.ExportControllerTest do
           avg_cost_usd: Decimal.new("0.0010"),
           avg_latency_ms: 250,
           avg_score: Decimal.new("75.0"),
+          suite_policy_id: suite_policy.id,
+          quality_policy_result: policy_result,
           results: [
             %{
               "test_case_id" => test_case.id,
+              "test_case_metadata" => %{"priority" => "high"},
               "passed" => true,
               "score" => 75.0,
               "output" => "Structured output",
@@ -150,6 +170,13 @@ defmodule Aludel.Web.ExportControllerTest do
       assert payload["suite_run"]["summary"]["avg_cost_usd"] == 0.001
       assert payload["suite_run"]["summary"]["avg_score"] == 75.0
 
+      assert payload["suite_run"]["quality_policy"] == %{
+               "id" => suite_policy.id,
+               "version" => 1,
+               "definition" => suite_policy.definition,
+               "result" => policy_result
+             }
+
       assert payload["suite_run"]["results"] == [
                %{
                  "assertion_results" => [
@@ -200,7 +227,8 @@ defmodule Aludel.Web.ExportControllerTest do
                  "retry_count" => 1,
                  "retried_at" => "2026-04-26T13:00:00Z",
                  "status" => "passed",
-                 "test_case_id" => test_case.id
+                 "test_case_id" => test_case.id,
+                 "test_case_metadata" => %{"priority" => "high"}
                }
              ]
     end

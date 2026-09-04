@@ -124,5 +124,34 @@ defmodule Aludel.Evals.SuiteRunTest do
       assert changeset.valid?
       assert Ecto.Changeset.get_field(changeset, :failed) == 0
     end
+
+    test "requires a policy association and result to be stored together" do
+      suite = suite_fixture()
+      prompt = prompt_fixture()
+      {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Template {{var}}")
+      provider = provider_fixture()
+
+      attrs = %{
+        suite_id: suite.id,
+        prompt_version_id: version.id,
+        provider_id: provider.id
+      }
+
+      missing_result =
+        SuiteRun.changeset(%SuiteRun{}, Map.put(attrs, :suite_policy_id, Ecto.UUID.generate()))
+
+      refute missing_result.valid?
+      assert "must be stored with its policy result" in errors_on(missing_result).suite_policy_id
+
+      missing_policy =
+        SuiteRun.changeset(
+          %SuiteRun{},
+          Map.put(attrs, :quality_policy_result, %{"passed" => true})
+        )
+
+      refute missing_policy.valid?
+
+      assert "must be stored with its policy association" in errors_on(missing_policy).quality_policy_result
+    end
   end
 end

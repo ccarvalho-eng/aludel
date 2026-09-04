@@ -189,6 +189,50 @@ Run each test case more than once when a single model response is not reliable e
 
 Sampled results retain every ordered attempt and record passed and failed counts, pass rate, reducer configuration, and the representative attempt. Token usage, cost, and latency are summed across attempts; available scores are averaged. Retrying a sampled test case reruns the complete persisted sampling configuration and replaces the previous aggregate.
 
+### Enforce a versioned quality policy
+
+Create an immutable policy version for a suite:
+
+```elixir
+{:ok, policy} =
+  Aludel.Evals.create_suite_policy(suite, %{
+    "schema_version" => 1,
+    "rules" => [
+      %{"id" => "overall", "type" => "overall_pass_rate", "minimum" => 0.95},
+      %{
+        "id" => "priority",
+        "type" => "metadata_pass_rate",
+        "metadata" => %{"priority" => "high"},
+        "minimum" => 1.0
+      },
+      %{
+        "id" => "faithfulness",
+        "type" => "evaluator_score",
+        "metric" => "rubric_judge",
+        "minimum" => 85
+      },
+      %{"id" => "cost", "type" => "total_cost_usd", "maximum" => 0.50},
+      %{"id" => "latency", "type" => "average_latency_ms", "maximum" => 1_500}
+    ]
+  })
+```
+
+Pass-rate minimums use values from `0.0` through `1.0`; evaluator-score minimums use `0` through `100`. Metadata groups match test cases whose metadata contains every configured key and value. Evaluator-score rules average every completed matching assertion, including every retained sampling attempt. Cost uses the full suite-run total, while latency uses the average across available request samples.
+
+Creating another policy produces the next suite-local version. Suite execution snapshots the latest version before making model requests. A later single-case retry restores the policy associated with the original run instead of switching to a newer contract.
+
+Each rule and the aggregate policy record a status. `passed` and `failed` are measured quality decisions. `unavailable` means required evidence such as a matching metadata group, completed evaluator score, cost, or latency was missing. `invalid` means a direct policy evaluation received a malformed or unsupported definition. Stored policy versions are field-strict, JSON-only, limited to 50 rules and 100,000 encoded bytes, and validated before persistence.
+
+```elixir
+case suite_run.quality_policy_result do
+  %{"status" => "passed"} -> :ok
+  %{"status" => status, "rules" => rules} -> {:error, status, rules}
+  nil -> :no_policy
+end
+```
+
+`mix aludel.eval` uses a stored policy outcome as its process exit gate. Suites without a policy keep the legacy behavior: every test case must pass and an empty suite fails.
+
 ## 5. Populate a suite
 
 Create an evaluation suite for the prompt, open it, select a dataset, and choose **Add entries**. Aludel copies entries in dataset order and records each source entry.
