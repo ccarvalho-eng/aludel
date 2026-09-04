@@ -7,6 +7,7 @@ defmodule Mix.Tasks.Aludel.EvalTest do
   import ExUnit.CaptureIO
   import Mox
 
+  alias Aludel.Evals
   alias Aludel.Interfaces.HttpClientMock
   alias Aludel.Prompts
   alias Mix.Tasks.Aludel.Eval, as: EvalTask
@@ -90,6 +91,75 @@ defmodule Mix.Tasks.Aludel.EvalTest do
     assert payload["summary"]["total"] == 0
     assert payload["summary"]["pass_rate"] == 0.0
     assert payload["results"] == []
+  end
+
+  test "uses a suite quality policy as the CI gate" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+
+    assert {:ok, policy} =
+             Evals.create_suite_policy(suite, %{
+               "schema_version" => 1,
+               "rules" => [
+                 %{
+                   "id" => "overall",
+                   "type" => "overall_pass_rate",
+                   "minimum" => 0.0
+                 }
+               ]
+             })
+
+    expect(HttpClientMock, :request, fn _model, _prompt, _options ->
+      {:ok, %{content: "Goodbye", input_tokens: 4, output_tokens: 2}}
+    end)
+
+    output =
+      capture_io(fn ->
+        EvalTask.run(task_args(suite, prompt_version, provider))
+      end)
+
+    payload = Jason.decode!(output)
+
+    assert payload["status"] == "passed"
+    assert payload["summary"]["failed"] == 1
+    assert payload["quality_policy"]["policy_id"] == policy.id
+    assert payload["quality_policy"]["policy_version"] == 1
+    assert payload["quality_policy"]["status"] == "passed"
+  end
+
+  test "fails with an explicit unavailable policy status" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+
+    assert {:ok, _policy} =
+             Evals.create_suite_policy(suite, %{
+               "schema_version" => 1,
+               "rules" => [
+                 %{
+                   "id" => "priority",
+                   "type" => "metadata_pass_rate",
+                   "metadata" => %{"priority" => "missing"},
+                   "minimum" => 1.0
+                 }
+               ]
+             })
+
+    expect(HttpClientMock, :request, fn _model, _prompt, _options ->
+      {:ok, %{content: "Hello Alice", input_tokens: 5, output_tokens: 3}}
+    end)
+
+    output =
+      capture_io(fn ->
+        assert_raise Mix.Error, "Evaluation did not pass", fn ->
+          EvalTask.run(task_args(suite, prompt_version, provider))
+        end
+      end)
+
+    payload = Jason.decode!(output)
+
+    assert payload["status"] == "unavailable"
+    assert payload["quality_policy"]["status"] == "unavailable"
+
+    assert payload["quality_policy"]["rules"] |> hd() |> Map.fetch!("reason") =~
+             "metadata"
   end
 
   test "emits a JSON error for missing required options" do

@@ -4,13 +4,14 @@ defmodule Aludel.Evals.SuiteRun do
 
   Records the outcome of running a test suite against a specific
   prompt version and provider, storing individual test results and
-  summary counts.
+  summary counts. Runs with a quality policy retain the immutable policy
+  association and its evaluated rule evidence.
   """
 
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Aludel.Evals.Suite
+  alias Aludel.Evals.{Suite, SuitePolicy}
   alias Aludel.Prompts.PromptVersion
   alias Aludel.Providers.Provider
   alias Ecto.Changeset
@@ -29,6 +30,8 @@ defmodule Aludel.Evals.SuiteRun do
     cost_sample_count
     total_latency_ms
     latency_sample_count
+    suite_policy_id
+    quality_policy_result
   )a
 
   @primary_key {:id, :binary_id, autogenerate: true}
@@ -45,8 +48,10 @@ defmodule Aludel.Evals.SuiteRun do
     field :cost_sample_count, :integer, default: 0
     field :total_latency_ms, :integer
     field :latency_sample_count, :integer, default: 0
+    field :quality_policy_result, :map
 
     belongs_to(:suite, Suite)
+    belongs_to(:suite_policy, SuitePolicy)
     belongs_to(:prompt_version, PromptVersion)
     belongs_to(:provider, Provider)
 
@@ -64,5 +69,27 @@ defmodule Aludel.Evals.SuiteRun do
     suite_run
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
+    |> validate_quality_policy_pair()
+    |> foreign_key_constraint(:suite_policy_id)
+  end
+
+  defp validate_quality_policy_pair(changeset) do
+    case {get_field(changeset, :suite_policy_id), get_field(changeset, :quality_policy_result)} do
+      {nil, nil} ->
+        changeset
+
+      {nil, _result} ->
+        add_error(
+          changeset,
+          :quality_policy_result,
+          "must be stored with its policy association"
+        )
+
+      {_policy_id, nil} ->
+        add_error(changeset, :suite_policy_id, "must be stored with its policy result")
+
+      {_policy_id, _result} ->
+        changeset
+    end
   end
 end

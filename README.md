@@ -40,11 +40,11 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 | Prompts | `{{variable}}` templates, immutable versions, tags, search, pagination, typed projects, version diffs, and provider-specific evolution history |
 | Providers | OpenAI, Anthropic, Google Gemini, Ollama, xAI, Groq, and OpenRouter; active and deprecated text-model discovery; custom model IDs; built-in or overridden pricing |
 | Runs | Multi-provider execution, concurrent or sequential dispatch, live status updates, partial-failure handling, normalized execution artifacts, result copy actions, and JSON exports |
-| Evaluation suites | Visual and JSON test-case editing, contextual prompt and execution evidence, normalized evaluator details, single-turn and multi-turn inputs, bounded repeated sampling with configurable pass reducers, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
+| Evaluation suites | Visual and JSON test-case editing, contextual prompt and execution evidence, normalized evaluator details, immutable versioned quality policies, single-turn and multi-turn inputs, bounded repeated sampling with configurable pass reducers, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
 | Assertions | `contains`, `not_contains`, `regex`, `exact_match`, typed `json_field`, scored `json_deep_compare`, custom rubric judges, and seven versioned judge templates |
 | Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, and idempotent suite population |
 | Prompt evolution | Version and provider trends, version-over-version deltas, suite-scoped Pareto frontiers, failure-grounded prompt suggestions, and explicit accept or dismiss decisions |
-| Automation and exports | JSON run and suite exports, CSV or JSON evolution exports, and `mix aludel.eval` with stable JSON output and CI-friendly exit status |
+| Automation and exports | JSON run and suite exports, CSV or JSON evolution exports, and policy-aware `mix aludel.eval` quality gates with stable JSON output and CI-friendly exit status |
 | Execution and extension | Native provider calls, host-app callback execution, pluggable LLM, storage, and document-conversion boundaries, optional callback metadata, and configurable run concurrency |
 | Deployment | Embedded Phoenix dashboard, standalone app, Docker Compose, local/AWS S3/GCS document storage, custom auth/access resolvers, CSP nonce support, theming, and read-only mode |
 | Demo data | Deterministic prompts, providers, datasets, suites, runs, failures, artifacts, and 60 days of comparison history through `mix aludel.seed` |
@@ -114,6 +114,33 @@ Nondeterministic model output can make a single response misleading. Run each te
 Reducers support `:all`, `:any`, strict `:majority`, and a minimum pass rate. Aludel retains every attempt, sums token usage, cost, and latency, and reruns the complete sampling configuration when a result is retried.
 
 See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#repeat-nondeterministic-cases) and [repeated sampling wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Repeated-Sampling) for the full result shape and reducer examples.
+
+## Versioned Quality Policies
+
+Define what a suite must satisfy instead of treating every run as an all-or-nothing test count:
+
+```elixir
+{:ok, policy} =
+  Aludel.Evals.create_suite_policy(suite, %{
+    "schema_version" => 1,
+    "rules" => [
+      %{"id" => "overall", "type" => "overall_pass_rate", "minimum" => 0.95},
+      %{
+        "id" => "priority",
+        "type" => "metadata_pass_rate",
+        "metadata" => %{"priority" => "high"},
+        "minimum" => 1.0
+      },
+      %{"id" => "budget", "type" => "total_cost_usd", "maximum" => 0.50}
+    ]
+  })
+```
+
+Policies can gate overall pass rate, metadata groups, evaluator scores, total cost, and average latency. Each update creates an immutable suite-local version. A run snapshots the latest version before execution, and retries continue to use that same version.
+
+Policy results report `passed`, `failed`, `invalid`, or `unavailable`; missing evidence never silently passes. `mix aludel.eval` uses the policy outcome as its exit gate and preserves the legacy all-cases-must-pass behavior for suites without a policy.
+
+See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#enforce-a-versioned-quality-policy) and [quality policies wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Quality-Policies) for every rule and result example.
 
 ## Test Case Imports
 

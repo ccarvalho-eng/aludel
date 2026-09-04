@@ -70,11 +70,14 @@ The suite UI supports:
 - population from reusable datasets
 - selection of a prompt version and provider for each suite run
 - persisted suite-run history with aggregate pass/fail, quality score, cost, and latency
-- detailed assertion and field-comparison results
+- detailed assertion, field-comparison, metric-context, and evaluator execution results
+- custom rubric judges and versioned correctness, relevance, faithfulness, safety, refusal, PII, and hallucination templates
+- bounded repeated sampling with all, any, majority, and minimum pass-rate reducers
+- immutable versioned quality policies for overall and metadata-group pass rates, evaluator scores, total cost, and average latency
 - retrying one test result without rerunning the entire suite
 - copy actions and raw JSON exports
 
-Built-in metrics are `contains`, `not_contains`, `regex`, `exact_match`, `json_field`, and `json_deep_compare`. See the [Evaluation Guide](evaluations.md) for examples.
+Built-in metrics are `contains`, `not_contains`, `regex`, `exact_match`, `json_field`, `json_deep_compare`, and `rubric_judge`. See the [Evaluation Guide](evaluations.md) for examples and programmatic policy configuration.
 
 ## Reusable datasets
 

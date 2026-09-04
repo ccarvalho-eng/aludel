@@ -6,6 +6,7 @@ defmodule Aludel.Web.ExportController do
   import Plug.Conn
 
   alias Aludel.Evals
+  alias Aludel.Evals.SuitePolicy
   alias Aludel.Prompts
   alias Aludel.Prompts.Evolution.Export, as: EvolutionExport
   alias Aludel.Runs
@@ -132,6 +133,7 @@ defmodule Aludel.Web.ExportController do
           prompt_id: suite_run.prompt_version.prompt_id
         },
         provider: serialize_provider(suite_run.provider),
+        quality_policy: serialize_quality_policy(suite_run),
         summary: %{
           passed: suite_run.passed,
           failed: suite_run.failed,
@@ -147,9 +149,23 @@ defmodule Aludel.Web.ExportController do
     }
   end
 
+  defp serialize_quality_policy(%{suite_policy: %SuitePolicy{} = suite_policy} = suite_run) do
+    %{
+      id: suite_policy.id,
+      version: suite_policy.version,
+      definition: suite_policy.definition,
+      result: suite_run.quality_policy_result
+    }
+  end
+
+  defp serialize_quality_policy(_suite_run) do
+    nil
+  end
+
   defp serialize_suite_result(result) do
     %{
       test_case_id: result["test_case_id"],
+      test_case_metadata: result["test_case_metadata"],
       status: if(result["passed"], do: "passed", else: "failed"),
       passed: result["passed"],
       score: result["score"],

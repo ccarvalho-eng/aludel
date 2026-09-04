@@ -9,7 +9,7 @@ defmodule Aludel.Evals.Suite do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Aludel.Evals.{SuiteRun, TestCase}
+  alias Aludel.Evals.{SuitePolicy, SuiteRun, TestCase}
   alias Aludel.Projects.Project
   alias Aludel.Prompts.Prompt
   alias Ecto.Changeset
@@ -28,6 +28,7 @@ defmodule Aludel.Evals.Suite do
     belongs_to(:project, Project)
     belongs_to(:prompt, Prompt)
     has_many(:test_cases, TestCase)
+    has_many(:quality_policies, SuitePolicy)
     has_many(:suite_runs, SuiteRun)
 
     timestamps(type: :utc_datetime)
