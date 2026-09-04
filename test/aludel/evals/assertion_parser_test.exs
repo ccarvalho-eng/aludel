@@ -105,6 +105,57 @@ defmodule Aludel.Evals.AssertionParserTest do
       assert assertion["threshold"] == 85
     end
 
+    test "parses built-in rubric judge templates in JSON mode" do
+      provider_id = Ecto.UUID.generate()
+
+      params = %{
+        "assertions_json" =>
+          Jason.encode!([
+            %{
+              "type" => "rubric_judge",
+              "template" => "correctness",
+              "provider_id" => provider_id
+            }
+          ])
+      }
+
+      assert {:ok, [assertion]} = AssertionParser.parse(:json, params)
+      assert assertion["template"] == "correctness"
+    end
+
+    test "rejects unknown or ambiguous rubric judge templates" do
+      provider_id = Ecto.UUID.generate()
+
+      unknown = %{
+        "assertions_json" =>
+          Jason.encode!([
+            %{
+              "type" => "rubric_judge",
+              "template" => "unknown",
+              "provider_id" => provider_id
+            }
+          ])
+      }
+
+      assert {:error, message} = AssertionParser.parse(:json, unknown)
+      assert message =~ "known 'template'"
+
+      ambiguous = %{
+        "assertions_json" =>
+          Jason.encode!([
+            %{
+              "type" => "rubric_judge",
+              "rubric" => "Judge correctness.",
+              "template" => "correctness",
+              "provider_id" => provider_id
+            }
+          ])
+      }
+
+      assert {:error, message} = AssertionParser.parse(:json, ambiguous)
+      assert message =~ "either 'rubric' or a known 'template'"
+    end
+
     test "rejects incomplete rubric judge assertions" do
       params = %{
         "assertions_json" => ~s([{"type":"rubric_judge","rubric":" ","provider_id":"bad"}])

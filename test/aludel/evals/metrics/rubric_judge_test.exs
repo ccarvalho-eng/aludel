@@ -62,6 +62,35 @@ defmodule Aludel.Evals.Metrics.RubricJudgeTest do
     assert is_number(result.evaluator.cost_usd)
   end
 
+  test "resolves a versioned built-in judge template" do
+    provider = provider_fixture(%{model: "judge-model"})
+
+    expect(HttpClientMock, :request, fn _model, [_system, user_message], _opts ->
+      payload = Jason.decode!(user_message.content)
+      assert payload["rubric"] =~ "grounding"
+
+      {:ok,
+       %{
+         content: ~s({"score":90,"reasoning":"Every claim is supported."}),
+         input_tokens: 40,
+         output_tokens: 10
+       }}
+    end)
+
+    assertion = %{
+      "type" => "rubric_judge",
+      "template" => "faithfulness",
+      "provider_id" => provider.id,
+      "threshold" => 85
+    }
+
+    assert {:ok, result} = Registry.evaluate(Context.new("grounded answer"), assertion)
+    assert result.passed
+    assert result.metadata["template"] == "faithfulness"
+    assert result.metadata["template_version"] == 1
+    assert result.metadata["rubric"] =~ "grounding"
+  end
+
   test "derives failure from the configured threshold instead of model-provided status" do
     provider = provider_fixture(%{model: "judge-model"})
 
@@ -108,6 +137,7 @@ defmodule Aludel.Evals.Metrics.RubricJudgeTest do
     assert result.reason == "Judge returned invalid structured output"
     assert result.evaluator.status == :error
     assert result.evaluator.error["type"] == "invalid_response"
+    assert result.metadata["rubric"] == "The answer must be useful."
     refute inspect(result) =~ "not valid JSON"
   end
 
@@ -132,10 +162,10 @@ defmodule Aludel.Evals.Metrics.RubricJudgeTest do
     refute inspect(result) =~ "secret-token"
   end
 
-  test "marks a missing judge provider as unavailable" do
+  test "marks a missing judge provider as unavailable and retains template evidence" do
     assertion = %{
       "type" => "rubric_judge",
-      "rubric" => "The answer must be useful.",
+      "template" => "relevance",
       "provider_id" => Ecto.UUID.generate()
     }
 
@@ -144,6 +174,9 @@ defmodule Aludel.Evals.Metrics.RubricJudgeTest do
     assert result.reason == "Judge provider is unavailable"
     assert result.evaluator.status == :unavailable
     assert result.evaluator.error["type"] == "provider_not_found"
+    assert result.metadata["template"] == "relevance"
+    assert result.metadata["template_version"] == 1
+    assert result.metadata["rubric"] =~ "rendered input"
   end
 
   test "rejects a malformed judge provider ID as invalid configuration" do

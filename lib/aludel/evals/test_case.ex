@@ -13,7 +13,7 @@ defmodule Aludel.Evals.TestCase do
   - exact_match: Check for exact string match
   - json_field: Compare a typed value at a dot-separated JSON path
   - json_deep_compare: Score an expected JSON structure with an optional threshold
-  - rubric_judge: Score output against a custom rubric with a configured provider
+  - rubric_judge: Score output against a custom rubric or built-in template
   """
 
   use Ecto.Schema
