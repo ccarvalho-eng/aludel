@@ -14,7 +14,7 @@ Aludel gives teams a clean way to evaluate prompt and model behavior without inv
 - Compare the same prompt across OpenAI, Anthropic, Gemini, Ollama, xAI, Groq, and OpenRouter.
 - Inspect output, latency, token usage, and cost side by side.
 - Compare prompt versions and see pass-rate, cost, and latency changes over time.
-- Run evaluation suites with assertions, document attachments, and CSV or JSON test case imports.
+- Run evaluation suites with assertions, repeated sampling, document attachments, and CSV or JSON test case imports.
 - Execute suites headlessly with machine-readable JSON output for CI workflows.
 - Route runs and suites through your app's real LLM workflow with callback execution.
 - Reuse single-turn and multi-turn datasets across suites with provenance and metadata filtering.
@@ -40,7 +40,7 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 | Prompts | `{{variable}}` templates, immutable versions, tags, search, pagination, typed projects, version diffs, and provider-specific evolution history |
 | Providers | OpenAI, Anthropic, Google Gemini, Ollama, xAI, Groq, and OpenRouter; active and deprecated text-model discovery; custom model IDs; built-in or overridden pricing |
 | Runs | Multi-provider execution, concurrent or sequential dispatch, live status updates, partial-failure handling, normalized execution artifacts, result copy actions, and JSON exports |
-| Evaluation suites | Visual and JSON test-case editing, single-turn and multi-turn inputs, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
+| Evaluation suites | Visual and JSON test-case editing, single-turn and multi-turn inputs, bounded repeated sampling with configurable pass reducers, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
 | Assertions | `contains`, `not_contains`, `regex`, `exact_match`, typed `json_field`, and scored `json_deep_compare` with configurable thresholds |
 | Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, and idempotent suite population |
 | Prompt evolution | Version and provider trends, version-over-version deltas, suite-scoped Pareto frontiers, failure-grounded prompt suggestions, and explicit accept or dismiss decisions |
@@ -74,6 +74,22 @@ For structured outputs, use `json_deep_compare` to score partial matches instead
 ```
 
 Aludel stores field-level comparison details, per-test match scores, and suite-run average scores so prompt evolution and exports can track structured output quality over time.
+
+## Repeated Evaluation Sampling
+
+Nondeterministic model output can make a single response misleading. Run each test case up to 20 times and reduce the ordered attempts into one result:
+
+```elixir
+{:ok, suite_run} =
+  Aludel.Evals.execute_suite(suite, prompt_version, provider,
+    samples: 5,
+    reducer: {:minimum_pass_rate, 0.8}
+  )
+```
+
+Reducers support `:all`, `:any`, strict `:majority`, and a minimum pass rate. Aludel retains every attempt, sums token usage, cost, and latency, and reruns the complete sampling configuration when a result is retried.
+
+See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#repeat-nondeterministic-cases) and [repeated sampling wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Repeated-Sampling) for the full result shape and reducer examples.
 
 ## Test Case Imports
 
