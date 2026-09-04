@@ -14,7 +14,7 @@ Aludel gives teams a clean way to evaluate prompt and model behavior without inv
 - Compare the same prompt across OpenAI, Anthropic, Gemini, Ollama, xAI, Groq, and OpenRouter.
 - Inspect output, latency, token usage, and cost side by side.
 - Compare prompt versions and see pass-rate, cost, and latency changes over time.
-- Run evaluation suites with assertions, repeated sampling, document attachments, and CSV or JSON test case imports.
+- Run evaluation suites with deterministic assertions, model-based judges, repeated sampling, document attachments, and CSV or JSON test case imports.
 - Execute suites headlessly with machine-readable JSON output for CI workflows.
 - Route runs and suites through your app's real LLM workflow with callback execution.
 - Reuse single-turn and multi-turn datasets across suites with provenance and metadata filtering.
@@ -40,8 +40,8 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 | Prompts | `{{variable}}` templates, immutable versions, tags, search, pagination, typed projects, version diffs, and provider-specific evolution history |
 | Providers | OpenAI, Anthropic, Google Gemini, Ollama, xAI, Groq, and OpenRouter; active and deprecated text-model discovery; custom model IDs; built-in or overridden pricing |
 | Runs | Multi-provider execution, concurrent or sequential dispatch, live status updates, partial-failure handling, normalized execution artifacts, result copy actions, and JSON exports |
-| Evaluation suites | Visual and JSON test-case editing, single-turn and multi-turn inputs, bounded repeated sampling with configurable pass reducers, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
-| Assertions | `contains`, `not_contains`, `regex`, `exact_match`, typed `json_field`, and scored `json_deep_compare` with configurable thresholds |
+| Evaluation suites | Visual and JSON test-case editing, contextual prompt and execution evidence, normalized evaluator details, single-turn and multi-turn inputs, bounded repeated sampling with configurable pass reducers, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
+| Assertions | `contains`, `not_contains`, `regex`, `exact_match`, typed `json_field`, scored `json_deep_compare`, custom rubric judges, and seven versioned judge templates |
 | Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, and idempotent suite population |
 | Prompt evolution | Version and provider trends, version-over-version deltas, suite-scoped Pareto frontiers, failure-grounded prompt suggestions, and explicit accept or dismiss decisions |
 | Automation and exports | JSON run and suite exports, CSV or JSON evolution exports, and `mix aludel.eval` with stable JSON output and CI-friendly exit status |
@@ -50,6 +50,30 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 | Demo data | Deterministic prompts, providers, datasets, suites, runs, failures, artifacts, and 60 days of comparison history through `mix aludel.seed` |
 
 See the [complete feature guide](https://hexdocs.pm/aludel/features.html) for behavior, constraints, and examples.
+
+## Model-Based Evaluation
+
+Use a rubric judge when correctness depends on meaning instead of an exact string or JSON shape. Choose a separate configured provider for the judge and use either a custom rubric or a versioned built-in template:
+
+```json
+[
+  {
+    "type": "rubric_judge",
+    "template": "faithfulness",
+    "provider_id": "00000000-0000-0000-0000-000000000000",
+    "threshold": 85,
+    "context": "Claims must be supported by this grounding evidence."
+  }
+]
+```
+
+Replace the placeholder with the ID of a configured provider.
+
+The catalog includes correctness, relevance, faithfulness, safety, refusal quality, PII protection, and hallucination checks. Aludel records the resolved rubric and template version alongside score, reasoning, duration, provider, model, token usage, cost, and structured evaluator status.
+
+See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#custom-rubric-judge), [rubric judge guide](https://github.com/ccarvalho-eng/aludel/wiki/Rubric-Judges), and [judge catalog](https://github.com/ccarvalho-eng/aludel/wiki/Judge-Catalog).
+
+Suite execution supplies metrics with normalized output, rendered input, prompt template, variables, messages, documents, metadata, provider, prompt version, and execution evidence. Expected references remain available in assertion configuration, and direct callers can also set `expected` on `Aludel.Evals.Metric.Context`. See [metric context](https://github.com/ccarvalho-eng/aludel/wiki/Metric-Context) and [evaluator execution details](https://github.com/ccarvalho-eng/aludel/wiki/Evaluator-Execution-Details).
 
 ## Structured Output Scoring
 
