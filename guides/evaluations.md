@@ -48,6 +48,18 @@ An entry must contain variables, messages, or both. Add JSON metadata such as `{
 
 Assertions can be edited visually or as JSON.
 
+For security regression coverage, you can materialize versioned adversarial cases into the dataset before populating the suite:
+
+```elixir
+{:ok, %{created: entries, skipped: []}} =
+  Aludel.RedTeam.materialize(dataset,
+    categories: [:prompt_injection, :sensitive_information_disclosure],
+    judge_provider_id: judge_provider.id
+  )
+```
+
+See the [red-team guide](red_team.md) for the complete catalog and deduplication behavior.
+
 ### Contains and excludes
 
 ```json

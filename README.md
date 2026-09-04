@@ -19,6 +19,7 @@ Aludel gives teams a clean way to evaluate prompt and model behavior without inv
 - Execute suites headlessly from versioned JSON or YAML manifests with console, JSON, JUnit XML, or GitHub annotation reports.
 - Route runs and suites through your app's real LLM workflow with callback execution.
 - Reuse single-turn and multi-turn datasets across suites with provenance and metadata filtering.
+- Materialize versioned prompt-injection, data-disclosure, unsafe-action, and misinformation checks from a curated red-team catalog.
 - Find quality, cost, latency, stability, and regression trade-offs with rolling analytics and Pareto analysis.
 - Generate failure-grounded prompt suggestions, then explicitly accept or dismiss them.
 - Use it inside an existing Phoenix app or run it standalone.
@@ -37,9 +38,9 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 
 | Interface | Use it for |
 |---|---|
-| Dashboard UI | Create and version prompts; configure providers; compare models; manage reusable datasets and documents; author assertions, judges, and quality policies; run and retry suites; inspect evaluator evidence; analyze cost, latency, stability, regressions, and Pareto frontiers; review prompt suggestions; export results |
+| Dashboard UI | Create and version prompts; configure providers; compare models; manage reusable and materialized red-team datasets and documents; author assertions, judges, and quality policies; run and retry suites; inspect evaluator evidence; analyze cost, latency, stability, regressions, and Pareto frontiers; review prompt suggestions; export results |
 | Mix CLI | Install Aludel with `mix aludel.install`; create deterministic demo data with `mix aludel.seed`; execute persisted suites by IDs or versioned JSON/YAML manifests with `mix aludel.eval`; emit console, JSON, JUnit, or GitHub Actions reports for local scripts and CI gates |
-| Elixir APIs | Embed the dashboard in a Phoenix router; route execution through host callbacks; create and execute prompts, datasets, suites, policies, and reports; load file-based suites; add custom metrics and reporters; assert evaluations directly from ExUnit |
+| Elixir APIs | Embed the dashboard in a Phoenix router; route execution through host callbacks; create and execute prompts, datasets, suites, policies, and reports; materialize curated red-team cases; load file-based suites; add custom metrics and reporters; assert evaluations directly from ExUnit |
 
 The dashboard and automation interfaces use the same persisted prompts, providers, datasets, suites, runs, quality policies, and evaluation evidence. A workflow can be authored in the UI, committed as a suite manifest, gated from the CLI, and inspected again in the dashboard without maintaining a second test-case format.
 
@@ -53,7 +54,7 @@ The dashboard and automation interfaces use the same persisted prompts, provider
 | Runs | Multi-provider execution, concurrent or sequential dispatch, live status updates, partial-failure handling, normalized execution artifacts, result copy actions, and JSON exports |
 | Evaluation suites | Visual and JSON test-case editing, contextual prompt and execution evidence, normalized evaluator details, immutable versioned quality policies, single-turn and multi-turn inputs, bounded repeated sampling with configurable pass reducers, document attachments, suite history, per-result retries, and aggregate quality, cost, and latency |
 | Assertions | `contains`, `not_contains`, `regex`, `exact_match`, typed `json_field`, scored `json_deep_compare`, custom rubric judges, and seven versioned judge templates |
-| Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, and idempotent suite population |
+| Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, idempotent suite population, and a versioned red-team catalog with deterministic deduplication |
 | Prompt evolution | Version and provider trends, version-over-version deltas, suite-scoped Pareto frontiers, failure-grounded prompt suggestions, and explicit accept or dismiss decisions |
 | Automation and exports | Native ExUnit assertions and persisted suite gates, versioned JSON or YAML suite manifests, JSON run and suite exports, CSV or JSON evolution exports, a custom reporter behavior, console reports, versioned JSON, JUnit XML, GitHub annotations, and policy-aware `mix aludel.eval` quality gates |
 | Execution and extension | Native provider calls, host-app callback execution, pluggable LLM, storage, and document-conversion boundaries, optional callback metadata, and configurable run concurrency |
@@ -125,6 +126,27 @@ Nondeterministic model output can make a single response misleading. Run each te
 Reducers support `:all`, `:any`, strict `:majority`, and a minimum pass rate. Aludel retains every attempt, sums token usage, cost, and latency, and reruns the complete sampling configuration when a result is retried.
 
 See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#repeat-nondeterministic-cases) and [repeated sampling wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Repeated-Sampling) for the full result shape and reducer examples.
+
+## Curated Red-Team Datasets
+
+Materialize a versioned set of adversarial cases into any reusable dataset:
+
+```elixir
+{:ok, dataset} = Aludel.Datasets.create_dataset(%{name: "Security regressions"})
+
+{:ok, %{created: created, skipped: skipped}} =
+  Aludel.RedTeam.materialize(dataset,
+    categories: [:prompt_injection, :system_prompt_leakage],
+    judge_provider_id: judge_provider.id,
+    judge_threshold: 90
+  )
+```
+
+Each entry includes a deterministic canary assertion plus optional model-based judging. Metadata records its stable case ID, catalog and case versions, risk category, severity, technique, source, checksum, and deduplication key. Repeating the same materialization skips matching entries; conflicting content or judge configuration returns an error.
+
+Catalog materialization is an Elixir API feature. After materialization, use the dashboard to inspect and edit the dataset or populate a suite, then run the persisted suite from the dashboard, `mix aludel.eval`, ExUnit, or the library API. There is no separate red-team CLI command or catalog browser in the dashboard yet.
+
+See the [red-team guide](https://hexdocs.pm/aludel/red_team.html) and [red-team datasets wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Red-Team-Datasets) for category filters, individual case selection, provenance, and rerun behavior.
 
 ## Versioned Quality Policies
 
