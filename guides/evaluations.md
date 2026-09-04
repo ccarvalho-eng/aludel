@@ -282,7 +282,13 @@ When failed suite evidence exists, choose a provider and generate a failure refl
 
 ## 9. Add a CI quality gate
 
-Run the same suite headlessly:
+Store the suite target and sampling configuration in a versioned JSON or YAML manifest, then run it headlessly:
+
+```bash
+mix aludel.eval --file evals/support-answer.yaml
+```
+
+The manifest references persisted records; it does not copy, replace, or delete suite cases or dataset provenance. You can also supply the targets directly:
 
 ```bash
 mix aludel.eval \
@@ -313,7 +319,7 @@ The command emits one schema-version-2 JSON object by default:
 
 The task exits unsuccessfully when arguments or targets are invalid, the prompt version belongs to another prompt, execution cannot be persisted, the suite is empty, or the active quality gate does not pass.
 
-Choose `--format console`, `--format junit`, or `--format github` for a human-readable log, CI test report, or GitHub Actions annotations. Add `--output PATH` to write the report to a file, `--pretty` to pretty-print JSON, or JUnit-only `--include-output` when the artifact is appropriate for generated responses. See the [reporter guide](reporters.html) for complete examples and the custom reporter behavior.
+Choose `--format console`, `--format junit`, or `--format github` for a human-readable log, CI test report, or GitHub Actions annotations. Add `--output PATH` to write the report to a file, `--pretty` to pretty-print JSON, or JUnit-only `--include-output` when the artifact is appropriate for generated responses. See the [file-based suite guide](file_suites.html) for the complete manifest schema and the [reporter guide](reporters.html) for output examples and the custom reporter behavior.
 
 ## 10. Gate evaluations in ExUnit
 

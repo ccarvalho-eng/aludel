@@ -16,7 +16,7 @@ Aludel gives teams a clean way to evaluate prompt and model behavior without inv
 - Compare prompt versions and see pass-rate, cost, and latency changes over time.
 - Run evaluation suites with deterministic assertions, model-based judges, repeated sampling, document attachments, and CSV or JSON test case imports.
 - Assert generated output directly in ExUnit, or execute and gate persisted suites from application tests and CI.
-- Execute suites headlessly with console, versioned JSON, JUnit XML, or GitHub annotation reports for CI workflows.
+- Execute suites headlessly from versioned JSON or YAML manifests with console, JSON, JUnit XML, or GitHub annotation reports.
 - Route runs and suites through your app's real LLM workflow with callback execution.
 - Reuse single-turn and multi-turn datasets across suites with provenance and metadata filtering.
 - Find quality, cost, latency, stability, and regression trade-offs with rolling analytics and Pareto analysis.
@@ -33,6 +33,16 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 - **Embedded app callbacks**: evaluate your production-facing workflow without rebuilding it in the dashboard.
 - **Phoenix-native deployment**: mount it in your app or run it as a standalone dashboard.
 
+## UI, CLI, and Library APIs
+
+| Interface | Use it for |
+|---|---|
+| Dashboard UI | Create and version prompts; configure providers; compare models; manage reusable datasets and documents; author assertions, judges, and quality policies; run and retry suites; inspect evaluator evidence; analyze cost, latency, stability, regressions, and Pareto frontiers; review prompt suggestions; export results |
+| Mix CLI | Install Aludel with `mix aludel.install`; create deterministic demo data with `mix aludel.seed`; execute persisted suites by IDs or versioned JSON/YAML manifests with `mix aludel.eval`; emit console, JSON, JUnit, or GitHub Actions reports for local scripts and CI gates |
+| Elixir APIs | Embed the dashboard in a Phoenix router; route execution through host callbacks; create and execute prompts, datasets, suites, policies, and reports; load file-based suites; add custom metrics and reporters; assert evaluations directly from ExUnit |
+
+The dashboard and automation interfaces use the same persisted prompts, providers, datasets, suites, runs, quality policies, and evaluation evidence. A workflow can be authored in the UI, committed as a suite manifest, gated from the CLI, and inspected again in the dashboard without maintaining a second test-case format.
+
 ## Feature Catalog
 
 | Area | Features |
@@ -45,7 +55,7 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 | Assertions | `contains`, `not_contains`, `regex`, `exact_match`, typed `json_field`, scored `json_deep_compare`, custom rubric judges, and seven versioned judge templates |
 | Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, and idempotent suite population |
 | Prompt evolution | Version and provider trends, version-over-version deltas, suite-scoped Pareto frontiers, failure-grounded prompt suggestions, and explicit accept or dismiss decisions |
-| Automation and exports | Native ExUnit assertions and persisted suite gates, JSON run and suite exports, CSV or JSON evolution exports, a custom reporter behavior, console reports, versioned JSON, JUnit XML, GitHub annotations, and policy-aware `mix aludel.eval` quality gates |
+| Automation and exports | Native ExUnit assertions and persisted suite gates, versioned JSON or YAML suite manifests, JSON run and suite exports, CSV or JSON evolution exports, a custom reporter behavior, console reports, versioned JSON, JUnit XML, GitHub annotations, and policy-aware `mix aludel.eval` quality gates |
 | Execution and extension | Native provider calls, host-app callback execution, pluggable LLM, storage, and document-conversion boundaries, optional callback metadata, and configurable run concurrency |
 | Deployment | Embedded Phoenix dashboard, standalone app, Docker Compose, local/AWS S3/GCS document storage, custom auth/access resolvers, CSP nonce support, theming, and read-only mode |
 | Demo data | Deterministic prompts, providers, datasets, suites, runs, failures, artifacts, and 60 days of comparison history through `mix aludel.seed` |
@@ -305,7 +315,25 @@ Set `run_execution_mode: :sequential` when provider calls must not overlap.
 
 ### Headless suite execution
 
-Run a suite from scripts or CI. JSON schema version 2 is the default:
+Keep the execution target and sampling policy in a versioned manifest while the suite's test cases and dataset provenance remain in Aludel:
+
+```yaml
+schema_version: 1
+suite_id: 9a756a58-eaec-43ca-99e6-f5c016d85d0c
+prompt_version_id: e74cf2e1-94b6-4bcb-9ed9-b259661be906
+provider_id: e1c60ec0-6d55-419b-b958-7d088055254f
+sampling:
+  samples: 5
+  reducer: majority
+```
+
+Run it from scripts or CI:
+
+```bash
+mix aludel.eval --file evals/support-answer.yaml
+```
+
+JSON manifests use the same schema. You can also supply the three identifiers directly:
 
 ```bash
 mix aludel.eval \
@@ -328,6 +356,8 @@ mix aludel.eval \
 Supported formats are `console`, `json`, `junit`, and `github`; `--pretty` formats JSON for human review, while `--include-output` opts JUnit into generated responses. The task exits unsuccessfully when its arguments or targets are invalid, execution cannot complete, the suite is empty, or the active quality gate does not pass.
 
 The versioned `aludel_eval` JSON envelope includes suite and provider identifiers, aggregate and total score/cost/latency data, quality-policy evidence, and individual assertion results.
+
+See the [file-based suite guide](https://hexdocs.pm/aludel/file_suites.html) and [wiki examples](https://github.com/ccarvalho-eng/aludel/wiki/File-Based-Suites) for both formats, every sampling reducer, library execution, validation behavior, and CI usage.
 
 ### ExUnit evaluation assertions
 

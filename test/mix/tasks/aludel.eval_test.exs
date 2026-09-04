@@ -50,6 +50,80 @@ defmodule Mix.Tasks.Aludel.EvalTest do
            ] = payload["results"]
   end
 
+  test "executes a versioned YAML suite manifest" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+
+    expect(HttpClientMock, :request, 3, fn _model, _prompt, _options ->
+      {:ok, %{content: "Hello Alice", input_tokens: 5, output_tokens: 3}}
+    end)
+
+    path = Path.join(System.tmp_dir!(), "aludel-eval-#{System.unique_integer()}.yaml")
+
+    File.write!(path, """
+    schema_version: 1
+    suite_id: #{suite.id}
+    prompt_version_id: #{prompt_version.id}
+    provider_id: #{provider.id}
+    sampling:
+      samples: 3
+      reducer: majority
+    """)
+
+    on_exit(fn -> File.rm(path) end)
+
+    output =
+      capture_io(fn ->
+        EvalTask.run(["--file", path])
+      end)
+
+    payload = Jason.decode!(output)
+
+    assert payload["status"] == "passed"
+    assert payload["suite_id"] == suite.id
+    assert [result] = payload["results"]
+    assert result["input_tokens"] == 15
+    assert result["output_tokens"] == 9
+  end
+
+  test "rejects combining a suite manifest with individual target flags" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+
+    output =
+      capture_io(fn ->
+        assert_raise Mix.Error, "--file cannot be combined with target ID options", fn ->
+          EvalTask.run(["--file", "suite.json"] ++ task_args(suite, prompt_version, provider))
+        end
+      end)
+
+    assert Jason.decode!(output)["error"]["code"] == "invalid_arguments"
+  end
+
+  test "emits a stable error for an invalid suite manifest" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+    path = Path.join(System.tmp_dir!(), "aludel-eval-#{System.unique_integer()}.json")
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "schema_version" => 2,
+        "suite_id" => suite.id,
+        "prompt_version_id" => prompt_version.id,
+        "provider_id" => provider.id
+      })
+    )
+
+    on_exit(fn -> File.rm(path) end)
+
+    output =
+      capture_io(fn ->
+        assert_raise Mix.Error, "schema_version must be 1", fn ->
+          EvalTask.run(["--file", path])
+        end
+      end)
+
+    assert Jason.decode!(output)["error"]["code"] == "unsupported_schema"
+  end
+
   test "emits failing JSON and raises when an assertion fails" do
     %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
 

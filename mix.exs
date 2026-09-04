@@ -33,6 +33,7 @@ defmodule Aludel.MixProject do
           "README.md",
           "guides/features.md",
           "guides/evaluations.md",
+          "guides/file_suites.md",
           "guides/ex_unit.md",
           "guides/reporters.md",
           "guides/embedding.md",
@@ -44,6 +45,7 @@ defmodule Aludel.MixProject do
           Guides: [
             "guides/features.md",
             "guides/evaluations.md",
+            "guides/file_suites.md",
             "guides/ex_unit.md",
             "guides/reporters.md",
             "guides/embedding.md"
@@ -122,6 +124,7 @@ defmodule Aludel.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
+      {:yaml_elixir, "~> 2.12"},
       {:llm_db, "~> 2026.2", runtime: false},
 
       # Documentation
