@@ -19,7 +19,7 @@ Aludel gives teams a clean way to evaluate prompt and model behavior without inv
 - Execute suites headlessly from versioned JSON or YAML manifests with console, JSON, JUnit XML, or GitHub annotation reports.
 - Route runs and suites through your app's real LLM workflow with callback execution.
 - Reuse single-turn and multi-turn datasets across suites with provenance and metadata filtering.
-- Materialize versioned prompt-injection, data-disclosure, unsafe-action, and misinformation checks from a curated red-team catalog.
+- Materialize versioned prompt-injection, data-disclosure, unsafe-action, and misinformation checks from a curated red-team catalog, or generate bounded candidates for explicit review.
 - Find quality, cost, latency, stability, and regression trade-offs with rolling analytics and Pareto analysis.
 - Generate failure-grounded prompt suggestions, then explicitly accept or dismiss them.
 - Use it inside an existing Phoenix app or run it standalone.
@@ -40,7 +40,7 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 |---|---|
 | Dashboard UI | Create and version prompts; configure providers; compare models; manage reusable and materialized red-team datasets and documents; author assertions, judges, and quality policies; run and retry suites; inspect evaluator evidence; analyze cost, latency, stability, regressions, and Pareto frontiers; review prompt suggestions; export results |
 | Mix CLI | Install Aludel with `mix aludel.install`; create deterministic demo data with `mix aludel.seed`; execute persisted suites by IDs or versioned JSON/YAML manifests with `mix aludel.eval`; emit console, JSON, JUnit, or GitHub Actions reports for local scripts and CI gates |
-| Elixir APIs | Embed the dashboard in a Phoenix router; route execution through host callbacks; create and execute prompts, datasets, suites, policies, and reports; materialize curated red-team cases; load file-based suites; add custom metrics and reporters; assert evaluations directly from ExUnit |
+| Elixir APIs | Embed the dashboard in a Phoenix router; route execution through host callbacks; create and execute prompts, datasets, suites, policies, and reports; materialize curated red-team cases; generate and review targeted adversarial candidates; load file-based suites; add custom metrics and reporters; assert evaluations directly from ExUnit |
 
 The dashboard and automation interfaces use the same persisted prompts, providers, datasets, suites, runs, quality policies, and evaluation evidence. A workflow can be authored in the UI, committed as a suite manifest, gated from the CLI, and inspected again in the dashboard without maintaining a second test-case format.
 
@@ -142,11 +142,27 @@ Materialize a versioned set of adversarial cases into any reusable dataset:
   )
 ```
 
-Each entry includes a deterministic canary assertion plus optional model-based judging. Metadata records its stable case ID, catalog and case versions, risk category, severity, technique, source, checksum, and deduplication key. Repeating the same materialization skips matching entries; conflicting content or judge configuration returns an error.
+Each curated entry includes a deterministic canary assertion plus optional model-based judging. Metadata records its stable case ID, catalog and case versions, risk category, severity, technique, source, checksum, and deduplication key. Repeating the same materialization skips matching entries; conflicting content or judge configuration returns an error.
 
-Catalog materialization is an Elixir API feature. After materialization, use the dashboard to inspect and edit the dataset or populate a suite, then run the persisted suite from the dashboard, `mix aludel.eval`, ExUnit, or the library API. There is no separate red-team CLI command or catalog browser in the dashboard yet.
+Generate cases for a product-specific context without writing to the database, then inspect the returned candidates and failures before deciding which cases belong in an evaluation dataset:
 
-See the [red-team guide](https://hexdocs.pm/aludel/red_team.html) and [red-team datasets wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Red-Team-Datasets) for category filters, individual case selection, provenance, and rerun behavior.
+```elixir
+{:ok, generation} =
+  Aludel.RedTeam.generate(generator_provider.id,
+    categories: [:prompt_injection, :sensitive_information_disclosure],
+    target_context: "A support assistant may read account history but must not reveal credentials",
+    cases_per_category: 2,
+    max_requests: 2,
+    max_total_tokens: 8_000,
+    max_cost_usd: 1.00
+  )
+```
+
+Generation is bounded by category count, cases per category, context size, requests, output tokens, observed total tokens, observed cost, response size, and per-request timeout. Valid categories remain reviewable when another category fails. Each candidate and the complete generation carry checksums for stable review. Usage is observed from successful provider responses; failed or timed-out external requests may still incur provider-side usage that Aludel cannot report.
+
+Catalog materialization and generated-case review are Elixir API features. Materialized curated cases use the normal dataset and suite workflows in the dashboard, `mix aludel.eval`, ExUnit, and the library API. There is no separate red-team CLI command or generation form in the dashboard yet.
+
+See the [red-team guide](https://hexdocs.pm/aludel/red_team.html), [curated datasets wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Red-Team-Datasets), and [generated cases wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Generated-Red-Team-Cases) for category filters, review, budgets, provenance, and rerun behavior.
 
 ## Versioned Quality Policies
 

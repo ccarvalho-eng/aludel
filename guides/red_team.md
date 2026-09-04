@@ -97,6 +97,53 @@ length(created) == length(skipped)
 
 Materialization never updates or deletes existing entries.
 
+## Generated cases
+
+Use an existing provider to propose cases for a product, policy, or threat context. Generation returns an in-memory `Aludel.RedTeam.Generation` and does not write to a dataset:
+
+```elixir
+{:ok, generation} =
+  Aludel.RedTeam.generate(generator_provider.id,
+    categories: [:prompt_injection, :sensitive_information_disclosure],
+    target_context: "A support assistant may read account history but must not reveal credentials",
+    cases_per_category: 2,
+    max_requests: 2,
+    max_output_tokens: 1_200,
+    max_total_tokens: 8_000,
+    max_cost_usd: 1.00,
+    request_timeout_ms: 30_000
+  )
+```
+
+The default request generates two prompt-injection candidates. Category lists must be non-empty and unique. Aludel allows at most six category requests, five cases per category, 4,000 output tokens per request, 100,000 observed total tokens, USD 100 of observed cost, 10,000 context characters, 100,000 response bytes, and 120 seconds per request. Lower defaults are applied when an option is omitted.
+
+The total-token and cost values are stop thresholds based on provider-reported usage. Aludel checks them before starting the next category, so the final in-flight request can report usage above a threshold; the context-size and per-request output-token limits bound that overshoot. The request count and timeout are hard per-call limits. Failed or timed-out external requests may still incur provider-side usage that Aludel cannot observe because no usage response was returned. Calling `generate/2` again starts a new set of requests; Aludel does not retry categories automatically.
+
+### Review the result
+
+Generation runs once per selected category. Its status is `:completed`, `:partial_failure`, or `:failed`. Validated cases remain available if a provider request times out, fails, exceeds a budget before another category starts, or returns invalid structured output.
+
+```elixir
+Enum.each(generation.cases, fn candidate ->
+  IO.inspect(%{
+    id: candidate.id,
+    category: candidate.category,
+    severity: candidate.severity,
+    prompt: candidate.prompt,
+    rationale: candidate.rationale,
+    recommended_judge: candidate.recommended_judge
+  })
+end)
+
+IO.inspect(generation.failures)
+IO.inspect(generation.usage)
+IO.inspect(generation.limits)
+```
+
+Failures contain only the category, stable failure type, and a safe message. Raw provider errors and malformed model output are not retained. The raw target context is represented by a checksum in the generation result. Each candidate and the complete generation record have checksums for stable review.
+
+Generation deliberately stops at the review boundary: it does not create, update, delete, or execute dataset entries. Use the candidate prompt, rationale, category, severity, technique, and recommended judge as review inputs before authoring an evaluation case.
+
 ## Use the entries
 
 The catalog is exposed through the Elixir API. Its output is normal dataset data:

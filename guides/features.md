@@ -93,7 +93,9 @@ Dataset pages support create, edit, delete, entry management, and JSON containme
 
 `Aludel.RedTeam` provides seven versioned adversarial cases covering direct and indirect prompt injection, system prompt leakage, sensitive information disclosure, excessive agency, misinformation, and unsafe assistance. The library API materializes selected cases into a reusable dataset with deterministic canary assertions, optional rubric judges, and category, severity, provenance, checksum, and deduplication metadata. Matching reruns are idempotent; content or judge-configuration drift under the same key fails explicitly. See the [red-team guide](red_team.md).
 
-Materialized entries use the normal dataset workflow in the dashboard. Once they have been copied into a suite, that suite can be executed through the dashboard, `mix aludel.eval`, ExUnit, or `Aludel.Evals`. Catalog browsing and materialization are currently library API features.
+The same API can generate product-specific cases through an Aludel provider. Generation validates a strict response schema, bounds calls and output, reports sanitized partial failures and usage, and returns inert checksummed candidates without database writes or execution.
+
+Materialized entries use the normal dataset workflow in the dashboard. Once they have been copied into a suite, that suite can be executed through the dashboard, `mix aludel.eval`, ExUnit, or `Aludel.Evals`. Catalog browsing, materialization, and generated-case review are currently library API features.
 
 ## Documents and storage
 

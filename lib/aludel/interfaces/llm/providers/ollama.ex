@@ -24,6 +24,7 @@ defmodule Aludel.Interfaces.LLM.Providers.Ollama do
         provider_options: ollama_provider_options(provider_options),
         temperature: config["temperature"] || 0.8
       ]
+      |> maybe_put_max_tokens(config["max_tokens"])
       |> Keyword.merge(opts)
 
     model_spec = "openai:#{model}"
@@ -45,5 +46,13 @@ defmodule Aludel.Interfaces.LLM.Providers.Ollama do
 
   defp ollama_provider_options(provider_options) when is_map(provider_options) do
     Map.put(provider_options, :openai_compatible_backend, :ollama)
+  end
+
+  defp maybe_put_max_tokens(opts, nil) do
+    opts
+  end
+
+  defp maybe_put_max_tokens(opts, max_tokens) do
+    Keyword.put(opts, :max_tokens, max_tokens)
   end
 end

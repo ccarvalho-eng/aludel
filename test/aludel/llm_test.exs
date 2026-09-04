@@ -267,6 +267,7 @@ defmodule Aludel.LLMTest do
         provider_options = Keyword.fetch!(opts, :provider_options)
 
         assert Keyword.fetch!(provider_options, :openai_compatible_backend) == :ollama
+        assert Keyword.fetch!(opts, :max_tokens) == 77
         refute Keyword.has_key?(opts, :api_key)
 
         {:ok, mock_response}
@@ -279,7 +280,8 @@ defmodule Aludel.LLMTest do
           config: %{}
         })
 
-      assert {:ok, _result} = LLM.call(provider, "test prompt", api_key: "ignored")
+      assert {:ok, _result} =
+               LLM.call(provider, "test prompt", api_key: "ignored", max_tokens: 77)
     end
 
     test "returns structured response" do

@@ -1,20 +1,22 @@
 defmodule Aludel.RedTeam do
   @moduledoc """
-  A versioned catalog of adversarial evaluation cases.
+  Curated and generated adversarial evaluation cases.
 
   Catalog cases can be inspected directly or materialized into an existing
   reusable dataset. Materialization is transactional and idempotent for the
   same case version and prompt variable. It records provenance, risk category,
   severity, content checksum, and a stable deduplication key in entry metadata.
 
-  Every case includes a deterministic canary assertion. Pass a judge provider
-  to also add the catalog's recommended model-based assertion.
+  Curated cases include deterministic canary assertions. Generated cases are
+  returned as inert review values without database writes or execution.
   """
 
   import Ecto.Query
 
   alias Aludel.Datasets.{Dataset, DatasetEntry}
   alias Aludel.RedTeam.Catalog
+  alias Aludel.RedTeam.Generation
+  alias Aludel.RedTeam.Generator
   alias Ecto.Changeset
 
   @default_variable "input"
@@ -35,6 +37,14 @@ defmodule Aludel.RedTeam do
           | {:unknown_case_ids, [term()]}
           | {:deduplication_conflict, String.t()}
           | Changeset.t()
+  @type generate_error ::
+          :provider_not_found
+          | :invalid_options
+          | :invalid_categories
+          | :invalid_cases_per_category
+          | :invalid_target_context
+          | :invalid_budget
+          | {:unknown_categories, [term()]}
 
   @doc """
   Returns every case in stable catalog order.
@@ -66,6 +76,34 @@ defmodule Aludel.RedTeam do
   @spec fetch!(String.t()) :: template()
   def fetch!(id) do
     Catalog.fetch!(id)
+  end
+
+  @doc """
+  Generates bounded, reviewable adversarial cases without persisting them.
+
+  Generation runs once per selected category and records sanitized failures,
+  observed token and cost usage, and the configured limits. Successfully
+  validated categories remain available when another category fails.
+
+  Options:
+
+    * `:categories` - non-empty, unique category list; defaults to `[:prompt_injection]`
+    * `:cases_per_category` - cases requested per category from 1 to 5; defaults to 2
+    * `:target_context` - optional product or policy context, limited to 10,000 characters
+    * `:max_requests` - category request limit from 1 to 6; defaults to 6
+    * `:max_output_tokens` - per-request output limit from 100 to 4,000; defaults to 1,200
+    * `:max_total_tokens` - observed token stop threshold up to 100,000; defaults to 20,000
+    * `:max_cost_usd` - observed cost stop threshold greater than 0 and up to 100; defaults to 5
+    * `:request_timeout_ms` - per-request timeout from 100 to 120,000; defaults to 30,000
+
+  See `Aludel.RedTeam.Generation` for the returned review boundary. Review the
+  candidates and failures before deciding whether any case should enter an
+  evaluation dataset.
+  """
+  @spec generate(String.t(), keyword()) ::
+          {:ok, Generation.t()} | {:error, generate_error()}
+  def generate(provider_id, opts \\ []) do
+    Generator.generate(provider_id, opts)
   end
 
   @doc """
