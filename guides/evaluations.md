@@ -60,6 +60,8 @@ For security regression coverage, you can materialize versioned adversarial case
 
 See the [red-team guide](red_team.md) for the complete catalog and deduplication behavior.
 
+For product-specific cases, call `Aludel.RedTeam.generate/2` and review the returned `generation.cases`, `generation.failures`, usage, and limits before authoring dataset entries. Generation never writes to the dataset directly. The [red-team guide](red_team.md#generated-cases) covers limits and partial failures.
+
 ### Contains and excludes
 
 ```json
