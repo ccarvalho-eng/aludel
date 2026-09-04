@@ -98,6 +98,25 @@ Deep comparison scores the expected JSON structure field by field. Extra fields 
 
 JSON metrics also accept model output wrapped in a Markdown JSON code fence.
 
+### Custom rubric judge
+
+Use a rubric judge when correctness depends on meaning rather than an exact string or JSON shape. The judge provider is separate from the provider being evaluated, and its usage, cost, latency, model, score, and reasoning are recorded with the assertion result.
+
+```json
+[
+  {
+    "type": "rubric_judge",
+    "rubric": "The answer must be factually correct, directly answer the question, and avoid unsupported claims.",
+    "provider_id": "00000000-0000-0000-0000-000000000000",
+    "threshold": 80,
+    "expected": "Optional reference answer",
+    "context": "Optional grounding context"
+  }
+]
+```
+
+Author rubric assertions in the JSON assertion editor. Scores range from 0 to 100, and Aludel derives the pass or fail result from `threshold`; a model-provided verdict is never trusted. Evaluation evidence is bounded and sent as untrusted JSON data so content under test cannot replace the rubric or output contract.
+
 ## 5. Populate a suite
 
 Create an evaluation suite for the prompt, open it, select a dataset, and choose **Add entries**. Aludel copies entries in dataset order and records each source entry.

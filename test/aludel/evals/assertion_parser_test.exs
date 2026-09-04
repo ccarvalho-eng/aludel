@@ -83,6 +83,37 @@ defmodule Aludel.Evals.AssertionParserTest do
               ]} = AssertionParser.parse(:json, params)
     end
 
+    test "parses rubric judge assertions in JSON mode" do
+      provider_id = Ecto.UUID.generate()
+
+      params = %{
+        "assertions_json" =>
+          Jason.encode!([
+            %{
+              "type" => "rubric_judge",
+              "rubric" => "The answer must be correct.",
+              "provider_id" => provider_id,
+              "threshold" => 85,
+              "expected" => "Reference answer"
+            }
+          ])
+      }
+
+      assert {:ok, [assertion]} = AssertionParser.parse(:json, params)
+      assert assertion["type"] == "rubric_judge"
+      assert assertion["provider_id"] == provider_id
+      assert assertion["threshold"] == 85
+    end
+
+    test "rejects incomplete rubric judge assertions" do
+      params = %{
+        "assertions_json" => ~s([{"type":"rubric_judge","rubric":" ","provider_id":"bad"}])
+      }
+
+      assert {:error, message} = AssertionParser.parse(:json, params)
+      assert message =~ "rubric_judge type requires a non-blank 'rubric'"
+    end
+
     test "parses json_deep_compare assertions in visual mode" do
       params = %{
         "assertions" => %{

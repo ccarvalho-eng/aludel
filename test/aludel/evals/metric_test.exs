@@ -34,7 +34,8 @@ defmodule Aludel.Evals.MetricTest do
                "regex",
                "exact_match",
                "json_field",
-               "json_deep_compare"
+               "json_deep_compare",
+               "rubric_judge"
              ]
     end
 

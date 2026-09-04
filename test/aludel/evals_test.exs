@@ -772,6 +772,56 @@ defmodule Aludel.EvalsTest do
       assert suite_run.passed == 1
     end
 
+    test "persists rubric judge evidence separately from model execution" do
+      provider = provider_fixture(%{model: "output-model"})
+      judge_provider = provider_fixture(%{name: "Judge", model: "judge-model"})
+
+      expect(HttpClientMock, :request, 2, fn
+        "openai:output-model", _prompt, _opts ->
+          {:ok, build_mock_response("Paris", 5, 2)}
+
+        "openai:judge-model", _messages, _opts ->
+          {:ok,
+           build_mock_response(
+             ~s({"score":95,"reasoning":"The response matches the reference."}),
+             30,
+             8
+           )}
+      end)
+
+      suite = suite_fixture()
+      prompt = prompt_fixture()
+      {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Capital: {{country}}")
+
+      _test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          variable_values: %{"country" => "France"},
+          assertions: [
+            %{
+              "type" => "rubric_judge",
+              "rubric" => "The response must name the correct capital.",
+              "provider_id" => judge_provider.id,
+              "threshold" => 90,
+              "expected" => "Paris"
+            }
+          ]
+        })
+
+      assert {:ok, suite_run} = Evals.execute_suite(suite, version, provider)
+      assert suite_run.passed == 1
+
+      assert [%{"assertion_results" => [assertion_result], "artifacts" => artifacts}] =
+               suite_run.results
+
+      assert assertion_result["score"] == 95.0
+      assert assertion_result["evaluator"]["model"] == "judge-model"
+      assert assertion_result["evaluator"]["input_tokens"] == 30
+
+      assert get_in(artifacts, ["steps", Access.at(0), "metrics", "results", Access.at(0)]) ==
+               assertion_result
+    end
+
     test "evaluates multiple assertions per test case" do
       mock_response = build_mock_response("Mock response", 5, 10)
 
