@@ -1,0 +1,179 @@
+# Evaluation Guide
+
+This guide builds a repeatable evaluation loop with prompts, datasets, suites, assertions, retries, exports, and CI.
+
+## 1. Create a prompt
+
+Create a prompt in **Prompts → New Prompt**:
+
+```text
+Return a JSON object with a short answer and confidence from 0 to 1.
+
+Question: {{question}}
+```
+
+Aludel extracts `question` as a required variable. Editing the template later creates a new immutable version, so old suite runs remain tied to the exact template they evaluated.
+
+## 2. Compare providers
+
+Open the prompt and choose **Run**. Enter a value for `question`, select one or more providers, and start the run.
+
+The results update as each provider completes. Compare output, tokens, latency, and cost side by side. A failed provider does not discard successful sibling results; the run records a partial failure.
+
+Use **Copy output** for a quick handoff or **Export JSON** when you need provider identity, timing, callback metadata, or normalized execution artifacts.
+
+## 3. Create a reusable dataset
+
+Open **Datasets**, create a dataset, and add an entry with variables:
+
+```json
+{
+  "question": "Which planet is known as the Red Planet?"
+}
+```
+
+For a multi-turn example, use messages instead:
+
+```json
+[
+  {"role": "user", "content": "Remember that my preferred unit is Celsius."},
+  {"role": "assistant", "content": "Understood."},
+  {"role": "user", "content": "What unit should you use in the forecast?"}
+]
+```
+
+An entry must contain variables, messages, or both. Add JSON metadata such as `{"language":"en","priority":"smoke"}` to filter entries later.
+
+## 4. Define assertions
+
+Assertions can be edited visually or as JSON.
+
+### Contains and excludes
+
+```json
+[
+  {"type": "contains", "value": "Mars"},
+  {"type": "not_contains", "value": "Jupiter"}
+]
+```
+
+### Regular expression and exact match
+
+```json
+[
+  {"type": "regex", "value": "(?i)confidence"},
+  {"type": "exact_match", "value": "Mars"}
+]
+```
+
+`regex` fails cleanly when the pattern is invalid. `exact_match` compares the entire output without trimming or normalization.
+
+### Typed JSON field
+
+```json
+[
+  {"type": "json_field", "field": "answer", "expected": "Mars"},
+  {"type": "json_field", "field": "confidence", "expected": 1}
+]
+```
+
+Dot-separated paths access nested fields. Expected values remain typed, so JSON number `1`, string `"1"`, and boolean `true` are distinct.
+
+### Scored deep JSON comparison
+
+```json
+[
+  {
+    "type": "json_deep_compare",
+    "expected": {
+      "answer": "Mars",
+      "evidence": {"category": "astronomy"}
+    },
+    "threshold": 75.0
+  }
+]
+```
+
+Deep comparison scores the expected JSON structure field by field. Extra fields in the model output do not reduce the score. The assertion passes when the match score meets the threshold; the default threshold is 100%.
+
+JSON metrics also accept model output wrapped in a Markdown JSON code fence.
+
+## 5. Populate a suite
+
+Create an evaluation suite for the prompt, open it, select a dataset, and choose **Add entries**. Aludel copies entries in dataset order and records each source entry.
+
+Repopulating from the same dataset skips entries already imported into that suite. Later edits to a suite test case do not mutate the source dataset.
+
+You can also add cases manually or import them from a file.
+
+### CSV import
+
+```csv
+input,expected,assertion,notes
+"Which planet is red?","Mars","contains","smoke test"
+"Name Earth's moon","Moon","exact_match","basic fact"
+```
+
+### JSON import
+
+```json
+[
+  {"input": "Which planet is red?", "expected": "Mars", "assertion": "contains"},
+  {"input": "Name Earth's moon", "expected": "Moon", "assertion": "exact_match"}
+]
+```
+
+File imports currently support `contains`, `not_contains`, `regex`, and `exact_match`. The preview reports accepted and rejected rows before anything is persisted. Use the suite editor for structured JSON assertions and multi-turn messages.
+
+## 6. Attach documents
+
+Attach PDF, PNG, JPEG, JSON, CSV, or plain-text files while creating or editing a suite test case. The selected storage adapter persists the bytes, and execution loads them only when the case runs.
+
+Use this for extraction, classification, document QA, or image-aware prompts. If a provider does not accept PDFs natively, configure the ImageMagick converter described in the [Embedding Guide](embedding.md).
+
+## 7. Run and inspect a suite
+
+Choose a prompt version and provider, then start the suite. Each result includes output, assertion details, score, tokens, cost, latency, metadata, and execution artifacts when available.
+
+If one test case needs another attempt, use its retry action. Aludel updates that result, recalculates suite aggregates, and records retry count and time without rerunning successful cases.
+
+## 8. Compare prompt versions
+
+Open the prompt's **Evolution** page to compare overall or provider-specific pass rate, score, cost, and latency. Select a suite to calculate a Pareto frontier for that exact workload.
+
+Use the version delta and signal badges to spot improvements, regressions, unstable pass rates, or insufficient evidence. Export evolution data as JSON or CSV for external analysis.
+
+When failed suite evidence exists, choose a provider and generate a failure reflection. Review the proposed template and rationale, then either dismiss it or accept it as a new prompt version.
+
+## 9. Add a CI quality gate
+
+Run the same suite headlessly:
+
+```bash
+mix aludel.eval \
+  --suite-id SUITE_ID \
+  --prompt-version-id PROMPT_VERSION_ID \
+  --provider-id PROVIDER_ID
+```
+
+The command emits one JSON object:
+
+```json
+{
+  "type": "aludel_eval",
+  "schema_version": 1,
+  "status": "passed",
+  "suite_id": "SUITE_ID",
+  "prompt_version_id": "PROMPT_VERSION_ID",
+  "provider_id": "PROVIDER_ID",
+  "summary": {
+    "passed": 2,
+    "failed": 0,
+    "total": 2,
+    "pass_rate": 100.0,
+    "avg_score": "100.0"
+  }
+}
+```
+
+The task exits unsuccessfully when arguments or targets are invalid, the prompt version belongs to another prompt, execution cannot be persisted, the suite is empty, or any test case fails.

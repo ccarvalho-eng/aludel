@@ -1,6 +1,11 @@
 defmodule Aludel.Prompts.Optimization do
   @moduledoc """
-  Multi-objective prompt analysis inspired by GEPA's Pareto selection.
+  Multi-objective prompt analysis and failure-grounded prompt suggestions.
+
+  Pareto analysis compares eligible prompt versions across pass rate, cost per
+  passed test, and latency per passed test. Reflection builds bounded evidence
+  from failed suite results, generates a variable-preserving suggestion, and
+  requires an explicit accept or dismiss transition.
   """
 
   @required_metrics [:avg_pass_rate, :cost_per_passed_test, :latency_per_passed_test]
