@@ -20,7 +20,8 @@ defmodule Aludel.Evals.Metrics.JSONDeepCompare do
   end
 
   @impl true
-  def evaluate(output, %{"expected" => _expected} = assertion) do
+  def evaluate(input, %{"expected" => _expected} = assertion) do
+    output = Metric.output(input)
     threshold = Metric.normalize_threshold(assertion)
 
     case Metric.decode_json(output) do

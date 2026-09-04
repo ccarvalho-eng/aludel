@@ -6,6 +6,7 @@ defmodule Aludel.Evals.Metric do
   result maps is handled by `Aludel.Evals.AssertionEvaluator`.
   """
 
+  alias Aludel.Evals.Metric.Context
   alias Aludel.Evals.Metric.Result
 
   @default_threshold 100.0
@@ -19,7 +20,21 @@ defmodule Aludel.Evals.Metric do
           | %{optional(String.t()) => json_value()}
 
   @callback type() :: String.t()
-  @callback evaluate(String.t(), map()) :: Result.t()
+  @type input :: Context.t() | String.t()
+
+  @callback evaluate(input(), map()) :: Result.t()
+
+  @doc """
+  Returns generated output from either a contextual or legacy metric input.
+  """
+  @spec output(input()) :: String.t()
+  def output(%Context{output: output}) do
+    output
+  end
+
+  def output(output) when is_binary(output) do
+    output
+  end
 
   @spec boolean_result(String.t(), boolean(), String.t(), String.t(), map()) :: Result.t()
   def boolean_result(type, passed, success_reason, failure_reason, metadata \\ %{}) do

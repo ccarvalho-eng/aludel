@@ -2,6 +2,7 @@ defmodule Aludel.Evals.MetricTest do
   use ExUnit.Case, async: true
 
   alias Aludel.Evals.AssertionEvaluator
+  alias Aludel.Evals.Metric.Context
   alias Aludel.Evals.Metric.Registry
 
   describe "registry" do
@@ -24,6 +25,88 @@ defmodule Aludel.Evals.MetricTest do
         assert function_exported?(module, :evaluate, 2)
         assert module.type() == type
       end
+    end
+
+    test "evaluates built-in metrics with a contextual input" do
+      context =
+        Context.new("hello world",
+          rendered_input: "Greet Alice",
+          variables: %{"name" => "Alice"},
+          metadata: %{"language" => "en"}
+        )
+
+      assert {:ok, result} =
+               Registry.evaluate(context, %{"type" => "contains", "value" => "hello"})
+
+      assert result.passed
+      assert result.score == 100.0
+    end
+  end
+
+  describe "metric context" do
+    test "normalizes the output and evaluation evidence" do
+      context =
+        Context.new("answer",
+          expected: "expected answer",
+          rendered_input: "question",
+          prompt_template: "{{question}}",
+          variables: %{"question" => "question"},
+          messages: [%{"role" => "user", "content" => "question"}],
+          documents: [%{"name" => "guide.txt", "content_type" => "text/plain"}],
+          metadata: %{"category" => "support"},
+          provider: %{"id" => "provider-id", "model" => "model"},
+          prompt_version: %{"id" => "version-id", "version" => 2},
+          execution: %{"latency_ms" => 25}
+        )
+
+      assert context.output == "answer"
+      assert context.expected == "expected answer"
+      assert context.rendered_input == "question"
+      assert context.prompt_template == "{{question}}"
+      assert context.variables == %{"question" => "question"}
+      assert context.messages == [%{"role" => "user", "content" => "question"}]
+      assert context.documents == [%{"name" => "guide.txt", "content_type" => "text/plain"}]
+      assert context.metadata == %{"category" => "support"}
+      assert context.provider == %{"id" => "provider-id", "model" => "model"}
+      assert context.prompt_version == %{"id" => "version-id", "version" => 2}
+      assert context.execution == %{"latency_ms" => 25}
+    end
+
+    test "uses safe defaults for optional evidence" do
+      assert %Context{
+               output: "answer",
+               expected: nil,
+               rendered_input: nil,
+               prompt_template: nil,
+               variables: %{},
+               messages: [],
+               documents: [],
+               metadata: %{},
+               provider: nil,
+               prompt_version: nil,
+               execution: %{}
+             } = Context.new("answer")
+    end
+
+    test "rejects a non-string output" do
+      assert_raise ArgumentError, "metric output must be a string", fn ->
+        Context.new(nil)
+      end
+    end
+
+    test "keeps the legacy assertion evaluator API working" do
+      legacy =
+        AssertionEvaluator.evaluate("hello world", %{
+          "type" => "contains",
+          "value" => "hello"
+        })
+
+      contextual =
+        "hello world"
+        |> Context.new(metadata: %{"source" => "suite"})
+        |> AssertionEvaluator.evaluate(%{"type" => "contains", "value" => "hello"})
+
+      assert contextual == legacy
     end
   end
 
