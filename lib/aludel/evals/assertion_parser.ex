@@ -218,6 +218,9 @@ defmodule Aludel.Evals.AssertionParser do
       type == "json_deep_compare" ->
         validate_json_deep_compare_assertion(assertion, idx)
 
+      type == "rubric_judge" ->
+        validate_rubric_judge_assertion(assertion, idx)
+
       true ->
         validate_string_assertion(assertion, idx, type)
     end
@@ -269,6 +272,30 @@ defmodule Aludel.Evals.AssertionParser do
       not valid_threshold?(threshold) ->
         {:error,
          "Assertion at index #{idx}: json_deep_compare type requires a threshold between 0 and 100"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_rubric_judge_assertion(assertion, idx) do
+    rubric = Map.get(assertion, "rubric")
+    provider_id = Map.get(assertion, "provider_id")
+
+    cond do
+      not is_binary(rubric) or String.trim(rubric) == "" ->
+        {:error,
+         "Assertion at index #{idx}: rubric_judge type requires a non-blank 'rubric' field"}
+
+      String.length(rubric) > 4_000 ->
+        {:error, "Assertion at index #{idx}: rubric_judge rubric cannot exceed 4000 characters"}
+
+      not valid_provider_id?(provider_id) ->
+        {:error, "Assertion at index #{idx}: rubric_judge type requires a valid 'provider_id'"}
+
+      not valid_threshold?(assertion["threshold"]) ->
+        {:error,
+         "Assertion at index #{idx}: rubric_judge type requires a threshold between 0 and 100"}
 
       true ->
         :ok
@@ -348,6 +375,14 @@ defmodule Aludel.Evals.AssertionParser do
   defp valid_threshold?(value) when is_integer(value), do: value >= 0 and value <= 100
   defp valid_threshold?(value) when is_float(value), do: value >= 0.0 and value <= 100.0
   defp valid_threshold?(_value), do: false
+
+  defp valid_provider_id?(provider_id) when is_binary(provider_id) do
+    match?({:ok, _uuid}, Ecto.UUID.cast(provider_id))
+  end
+
+  defp valid_provider_id?(_provider_id) do
+    false
+  end
 
   defp parse_json_field_expected(expected_text, expected_json) when is_binary(expected_text) do
     case Jason.decode(expected_json) do

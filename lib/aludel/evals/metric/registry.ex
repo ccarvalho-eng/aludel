@@ -14,6 +14,7 @@ defmodule Aludel.Evals.Metric.Registry do
   alias Aludel.Evals.Metrics.JSONField
   alias Aludel.Evals.Metrics.NotContains
   alias Aludel.Evals.Metrics.Regex
+  alias Aludel.Evals.Metrics.RubricJudge
 
   @metrics [
     {"contains", Contains},
@@ -21,7 +22,8 @@ defmodule Aludel.Evals.Metric.Registry do
     {"regex", Regex},
     {"exact_match", ExactMatch},
     {"json_field", JSONField},
-    {"json_deep_compare", JSONDeepCompare}
+    {"json_deep_compare", JSONDeepCompare},
+    {"rubric_judge", RubricJudge}
   ]
 
   @spec types() :: [String.t()]

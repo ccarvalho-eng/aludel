@@ -24,6 +24,14 @@ defmodule Aludel.Providers do
   end
 
   @doc """
+  Gets a provider by ID, returning `nil` when it does not exist.
+  """
+  @spec get_provider(binary()) :: Provider.t() | nil
+  def get_provider(id) do
+    repo().get(Provider, id)
+  end
+
+  @doc """
   Creates a new provider.
   """
   @spec create_provider(map()) ::
