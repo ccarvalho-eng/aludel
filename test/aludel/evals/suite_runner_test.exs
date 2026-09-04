@@ -8,7 +8,7 @@ defmodule Aludel.Evals.SuiteRunnerTest do
   setup :set_mox_global
   setup :verify_on_exit!
 
-  describe "execute/3" do
+  describe "execute/3 and execute/4" do
     test "returns a persisted suite run" do
       prompt = prompt_fixture_with_version(%{template: "Hello {{name}}"})
       suite = suite_fixture(%{prompt_id: prompt.id})
@@ -35,6 +35,16 @@ defmodule Aludel.Evals.SuiteRunnerTest do
 
       assert {:error, :provider_not_found} =
                SuiteRunner.execute(suite.id, version.id, Ecto.UUID.generate())
+    end
+
+    test "forwards sampling validation errors" do
+      prompt = prompt_fixture_with_version(%{template: "Hello {{name}}"})
+      suite = suite_fixture(%{prompt_id: prompt.id})
+      provider = provider_fixture()
+      version = List.first(prompt.versions)
+
+      assert {:error, {:invalid_sampling, _message}} =
+               SuiteRunner.execute(suite.id, version.id, provider.id, samples: 21)
     end
 
     test "executes suites through the configured callback executor" do

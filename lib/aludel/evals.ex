@@ -7,6 +7,7 @@ defmodule Aludel.Evals do
 
   alias Aludel.Evals.{
     AssertionEvaluator,
+    Sampling,
     Suite,
     SuiteRun,
     SuiteRunner,
@@ -348,19 +349,21 @@ defmodule Aludel.Evals do
   Retries a single test case result within an existing suite run.
 
   The existing embedded result is replaced in-place and the suite run
-  aggregates are recalculated from the updated result set.
+  aggregates are recalculated from the updated result set. Sampled results
+  repeat their complete persisted sampling configuration.
   """
   @spec retry_suite_run_test_case(SuiteRun.t(), binary()) ::
           {:ok, SuiteRun.t()} | {:error, term()}
   def retry_suite_run_test_case(%SuiteRun{} = suite_run, test_case_id)
       when is_binary(test_case_id) do
     with {:ok, existing_result} <- fetch_suite_run_result(suite_run, test_case_id),
+         {:ok, sampling} <- Sampling.from_result(existing_result),
          {:ok, test_case} <- fetch_suite_test_case(suite_run.suite_id, test_case_id),
          {:ok, version} <- fetch_prompt_version(suite_run.prompt_version_id),
          {:ok, provider} <- fetch_provider(suite_run.provider_id) do
       retried_result =
         test_case
-        |> execute_test_case(version, provider)
+        |> execute_test_case(version, provider, sampling)
         |> merge_retry_metadata(existing_result)
 
       updated_results = replace_suite_run_result(suite_run.results, test_case_id, retried_result)
@@ -389,37 +392,48 @@ defmodule Aludel.Evals do
     - suite: The test suite to execute
     - prompt_version: The prompt version to use
     - provider: The LLM provider to call
+    - opts: Sampling options accepted by `Aludel.Evals.Sampling.new/1`
 
   ## Returns
     - `{:ok, suite_run}` with execution results
     - `{:error, reason}` if execution fails
   """
-  @spec execute_suite(Suite.t(), PromptVersion.t(), Provider.t()) ::
+  @spec execute_suite(Suite.t(), PromptVersion.t(), Provider.t(), keyword()) ::
           {:ok, SuiteRun.t()} | {:error, term()}
-  def execute_suite(%Suite{} = suite, %PromptVersion{} = version, %Provider{} = provider) do
-    suite = repo().preload(suite, test_cases: :documents)
+  def execute_suite(
+        %Suite{} = suite,
+        %PromptVersion{} = version,
+        %Provider{} = provider,
+        opts \\ []
+      ) do
+    with {:ok, sampling} <- Sampling.new(opts) do
+      suite = repo().preload(suite, test_cases: :documents)
 
-    results = Enum.map(suite.test_cases, &execute_test_case(&1, version, provider))
-    summary = summarize_suite_results(results)
+      results =
+        Enum.map(suite.test_cases, &execute_test_case(&1, version, provider, sampling))
 
-    create_suite_run(
-      Map.merge(summary, %{
-        suite_id: suite.id,
-        prompt_version_id: version.id,
-        provider_id: provider.id,
-        results: results
-      })
-    )
+      summary = summarize_suite_results(results)
+
+      create_suite_run(
+        Map.merge(summary, %{
+          suite_id: suite.id,
+          prompt_version_id: version.id,
+          provider_id: provider.id,
+          results: results
+        })
+      )
+    end
   end
 
   @doc """
   Launches suite execution in a supervised task and reports completion
-  back to the given recipient process.
+  back to the given recipient process. Sampling options are forwarded to the
+  execution task.
   """
-  @spec launch_suite_execution(pid(), binary(), binary(), binary()) ::
+  @spec launch_suite_execution(pid(), binary(), binary(), binary(), keyword()) ::
           {:ok, reference()} | {:error, term()}
-  def launch_suite_execution(recipient, suite_id, version_id, provider_id) do
-    case SuiteRunner.launch(recipient, suite_id, version_id, provider_id) do
+  def launch_suite_execution(recipient, suite_id, version_id, provider_id, opts \\ []) do
+    case SuiteRunner.launch(recipient, suite_id, version_id, provider_id, opts) do
       {:ok, task_pid} -> {:ok, Process.monitor(task_pid)}
       {:error, reason} -> {:error, reason}
     end
@@ -486,7 +500,20 @@ defmodule Aludel.Evals do
 
   # Private functions
 
-  defp execute_test_case(test_case, version, provider) do
+  defp execute_test_case(test_case, version, provider, %Sampling{samples: 1}) do
+    execute_test_case_attempt(test_case, version, provider)
+  end
+
+  defp execute_test_case(test_case, version, provider, %Sampling{samples: samples} = sampling) do
+    attempts =
+      Enum.map(1..samples, fn _ ->
+        execute_test_case_attempt(test_case, version, provider)
+      end)
+
+    Sampling.aggregate(attempts, sampling)
+  end
+
+  defp execute_test_case_attempt(test_case, version, provider) do
     test_case = ensure_documents_loaded(test_case)
 
     request = %{
@@ -760,33 +787,56 @@ defmodule Aludel.Evals do
     }
   end
 
-  defp accumulate_cost_and_latency(acc, %{"cost_usd" => cost, "latency_ms" => latency}) do
+  defp accumulate_cost_and_latency(
+         acc,
+         %{"cost_usd" => cost, "latency_ms" => latency} = result
+       ) do
     acc
-    |> maybe_accumulate_cost(cost)
-    |> maybe_accumulate_latency(latency)
+    |> maybe_accumulate_cost(cost, sample_count(result, "cost_sample_count", cost))
+    |> maybe_accumulate_latency(
+      latency,
+      sample_count(result, "latency_sample_count", latency)
+    )
   end
 
   defp accumulate_cost_and_latency(acc, _result), do: acc
 
-  defp maybe_accumulate_cost(acc, cost) when is_number(cost) do
+  defp maybe_accumulate_cost(acc, cost, sample_count)
+       when is_number(cost) and is_integer(sample_count) and sample_count > 0 do
     %{
       acc
       | total_cost: Decimal.add(acc.total_cost, decimal_from_number(cost)),
-        cost_samples: acc.cost_samples + 1
+        cost_samples: acc.cost_samples + sample_count
     }
   end
 
-  defp maybe_accumulate_cost(acc, _cost), do: acc
+  defp maybe_accumulate_cost(acc, _cost, _sample_count) do
+    acc
+  end
 
-  defp maybe_accumulate_latency(acc, latency) when is_number(latency) do
+  defp maybe_accumulate_latency(acc, latency, sample_count)
+       when is_number(latency) and is_integer(sample_count) and sample_count > 0 do
     %{
       acc
       | total_latency: acc.total_latency + round(latency),
-        latency_samples: acc.latency_samples + 1
+        latency_samples: acc.latency_samples + sample_count
     }
   end
 
-  defp maybe_accumulate_latency(acc, _latency), do: acc
+  defp maybe_accumulate_latency(acc, _latency, _sample_count) do
+    acc
+  end
+
+  defp sample_count(result, field, value) when is_number(value) do
+    case Map.get(result, field) do
+      count when is_integer(count) and count > 0 -> count
+      _missing_or_invalid -> 1
+    end
+  end
+
+  defp sample_count(_result, _field, _value) do
+    0
+  end
 
   defp accumulate_score(acc, %{"score" => score}) when is_number(score) do
     %{

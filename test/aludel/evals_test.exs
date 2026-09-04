@@ -481,7 +481,93 @@ defmodule Aludel.EvalsTest do
     end
   end
 
-  describe "execute_suite/3" do
+  describe "execute_suite/3 and execute_suite/4" do
+    test "retains repeated attempts, reduces them, and repeats the same sampling on retry" do
+      Process.put(:sampling_outputs, ["miss", "pass", "pass", "miss", "miss", "miss"])
+
+      expect(HttpClientMock, :request, 6, fn _model, _prompt, _opts ->
+        [output | remaining] = Process.get(:sampling_outputs)
+        Process.put(:sampling_outputs, remaining)
+        {:ok, build_mock_response(output, 5, 2)}
+      end)
+
+      suite = suite_fixture()
+      prompt = prompt_fixture()
+      {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Answer {{input}}")
+
+      provider =
+        provider_fixture(%{
+          pricing: %{"input" => 1000.0, "output" => 2000.0}
+        })
+
+      test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          variable_values: %{"input" => "now"},
+          assertions: [%{"type" => "exact_match", "value" => "pass"}]
+        })
+
+      assert {:ok, suite_run} =
+               Evals.execute_suite(suite, version, provider,
+                 samples: 3,
+                 reducer: :majority
+               )
+
+      assert suite_run.passed == 1
+      assert suite_run.failed == 0
+      assert suite_run.cost_sample_count == 3
+      assert suite_run.latency_sample_count == 3
+      assert [result] = suite_run.results
+      assert result["passed"]
+      assert result["output"] == "pass"
+      assert result["score"] == 66.7
+      assert result["input_tokens"] == 15
+      assert result["output_tokens"] == 6
+      assert_in_delta result["cost_usd"], 0.027, 0.000_001
+      assert_in_delta Decimal.to_float(suite_run.total_cost_usd), 0.027, 0.000_001
+      assert_in_delta Decimal.to_float(suite_run.avg_cost_usd), 0.009, 0.000_001
+
+      assert result["sampling"] == %{
+               "failed_attempts" => 1,
+               "pass_rate" => 0.6667,
+               "passed_attempts" => 2,
+               "reducer" => "majority",
+               "representative_attempt" => 3,
+               "schema_version" => 1,
+               "samples" => 3
+             }
+
+      assert Enum.map(result["attempts"], & &1["attempt"]) == [1, 2, 3]
+      assert Enum.map(result["attempts"], & &1["passed"]) == [false, true, true]
+
+      assert {:ok, retried_run} = Evals.retry_suite_run_test_case(suite_run, test_case.id)
+      assert retried_run.passed == 0
+      assert retried_run.failed == 1
+      assert retried_run.cost_sample_count == 3
+      assert [retried_result] = retried_run.results
+      assert retried_result["retry_count"] == 1
+      assert retried_result["sampling"]["reducer"] == "majority"
+      assert Enum.map(retried_result["attempts"], & &1["passed"]) == [false, false, false]
+    end
+
+    test "rejects invalid sampling before executing or persisting a run" do
+      suite = suite_fixture()
+      prompt = prompt_fixture()
+      {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Answer")
+      provider = provider_fixture()
+
+      _test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          assertions: [%{"type" => "contains", "value" => "answer"}]
+        })
+
+      assert {:error, {:invalid_sampling, _message}} =
+               Evals.execute_suite(suite, version, provider, samples: 0)
+
+      assert Evals.list_suite_runs() == []
+    end
+
     test "executes multi-turn cases with the rendered prompt as system context" do
       expect(HttpClientMock, :request, fn _model, messages, _opts ->
         assert messages == [

@@ -142,6 +142,22 @@ For common checks, replace `rubric` with a versioned built-in `template`:
 
 Templates and custom rubrics are mutually exclusive. Aludel records the resolved rubric and template version with each result, so a historical run retains the criteria it used.
 
+### Repeat nondeterministic cases
+
+Run each test case more than once when a single model response is not reliable enough to make a decision:
+
+```elixir
+{:ok, suite_run} =
+  Aludel.Evals.execute_suite(suite, prompt_version, provider,
+    samples: 5,
+    reducer: :majority
+  )
+```
+
+`samples` accepts `1` through `20`. Reducers can require `:all`, `:any`, a strict `:majority`, or a minimum rate such as `{:minimum_pass_rate, 0.8}`. Invalid sampling configuration returns an error before any model request is made.
+
+Sampled results retain every ordered attempt and record passed and failed counts, pass rate, reducer configuration, and the representative attempt. Token usage, cost, and latency are summed across attempts; available scores are averaged. Retrying a sampled test case reruns the complete persisted sampling configuration and replaces the previous aggregate.
+
 ## 5. Populate a suite
 
 Create an evaluation suite for the prompt, open it, select a dataset, and choose **Add entries**. Aludel copies entries in dataset order and records each source entry.
