@@ -4,6 +4,7 @@ defmodule Aludel.Evals.AssertionEvaluator do
   """
 
   alias Aludel.Evals.Metric.Context
+  alias Aludel.Evals.Metric.Evaluator
   alias Aludel.Evals.Metric.Registry
   alias Aludel.Evals.Metric.Result
 
@@ -78,7 +79,12 @@ defmodule Aludel.Evals.AssertionEvaluator do
       passed: false,
       score: 0.0,
       reason: "Unsupported metric type",
-      metadata: %{}
+      metadata: %{},
+      evaluator:
+        Evaluator.unavailable(%{
+          "type" => "unsupported_metric",
+          "message" => "Metric type is not registered"
+        })
     }
     |> Result.to_map(%{"value" => Map.get(assertion, "value")})
   end
