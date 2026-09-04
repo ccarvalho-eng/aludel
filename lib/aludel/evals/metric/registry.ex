@@ -6,6 +6,7 @@ defmodule Aludel.Evals.Metric.Registry do
   aggregation code.
   """
 
+  alias Aludel.Evals.Metric.Context
   alias Aludel.Evals.Metrics.Contains
   alias Aludel.Evals.Metrics.ExactMatch
   alias Aludel.Evals.Metrics.JSONDeepCompare
@@ -35,15 +36,16 @@ defmodule Aludel.Evals.Metric.Registry do
     end
   end
 
-  @spec evaluate(String.t(), map()) :: {:ok, Aludel.Evals.Metric.Result.t()} | :error
-  def evaluate(output, %{"type" => type} = assertion) do
+  @spec evaluate(Context.t() | String.t(), map()) ::
+          {:ok, Aludel.Evals.Metric.Result.t()} | :error
+  def evaluate(input, %{"type" => type} = assertion) do
     case fetch(type) do
-      {:ok, module} -> {:ok, module.evaluate(output, assertion)}
+      {:ok, module} -> {:ok, module.evaluate(input, assertion)}
       :error -> :error
     end
   end
 
-  def evaluate(_output, _assertion) do
+  def evaluate(_input, _assertion) do
     :error
   end
 end

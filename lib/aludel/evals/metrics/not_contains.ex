@@ -11,7 +11,9 @@ defmodule Aludel.Evals.Metrics.NotContains do
   end
 
   @impl true
-  def evaluate(output, %{"value" => value}) do
+  def evaluate(input, %{"value" => value}) do
+    output = Metric.output(input)
+
     Metric.boolean_result(
       type(),
       not String.contains?(output, value),

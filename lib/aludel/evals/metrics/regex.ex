@@ -11,7 +11,9 @@ defmodule Aludel.Evals.Metrics.Regex do
   end
 
   @impl true
-  def evaluate(output, %{"value" => pattern}) do
+  def evaluate(input, %{"value" => pattern}) do
+    output = Metric.output(input)
+
     case Regex.compile(pattern) do
       {:ok, regex} ->
         Metric.boolean_result(

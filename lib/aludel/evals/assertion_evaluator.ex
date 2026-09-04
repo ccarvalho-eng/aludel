@@ -3,12 +3,13 @@ defmodule Aludel.Evals.AssertionEvaluator do
   Backward-compatible facade for behaviour-driven evaluation metrics.
   """
 
+  alias Aludel.Evals.Metric.Context
   alias Aludel.Evals.Metric.Registry
   alias Aludel.Evals.Metric.Result
 
-  @spec evaluate(String.t(), map()) :: map()
-  def evaluate(output, assertion) do
-    case Registry.evaluate(output, assertion) do
+  @spec evaluate(Context.t() | String.t(), map()) :: map()
+  def evaluate(input, assertion) do
+    case Registry.evaluate(input, assertion) do
       {:ok, result} ->
         Result.to_map(result, legacy_fields(result, assertion))
 

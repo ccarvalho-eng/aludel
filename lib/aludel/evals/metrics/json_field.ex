@@ -12,7 +12,9 @@ defmodule Aludel.Evals.Metrics.JSONField do
   end
 
   @impl true
-  def evaluate(output, %{"field" => field, "expected" => expected}) do
+  def evaluate(input, %{"field" => field, "expected" => expected}) do
+    output = Metric.output(input)
+
     case Metric.decode_json(output) do
       {:ok, json} ->
         actual_value = get_in(json, String.split(field, "."))

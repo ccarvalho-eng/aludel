@@ -14,6 +14,7 @@ defmodule Aludel.Evals do
     TestCaseDocument
   }
 
+  alias Aludel.Evals.Metric.Context
   alias Aludel.Execution
   alias Aludel.Execution.Artifact
   alias Aludel.Prompts.PromptVersion
@@ -504,7 +505,8 @@ defmodule Aludel.Evals do
 
     case Execution.execute_with_artifacts(request) do
       {:ok, result} ->
-        assertion_results = build_assertion_results(test_case.assertions, result.output)
+        metric_context = build_metric_context(test_case, version, provider, result)
+        assertion_results = build_assertion_results(test_case.assertions, metric_context)
         passed = Enum.all?(assertion_results, & &1["passed"])
         score = AssertionEvaluator.score_for_results(assertion_results)
         artifacts = Artifact.put_metrics(result.artifacts, assertion_results, score)
@@ -523,8 +525,45 @@ defmodule Aludel.Evals do
     end
   end
 
-  defp build_assertion_results(assertions, output) do
-    Enum.map(assertions, &AssertionEvaluator.evaluate(output, &1))
+  defp build_assertion_results(assertions, metric_context) do
+    Enum.map(assertions, &AssertionEvaluator.evaluate(metric_context, &1))
+  end
+
+  defp build_metric_context(test_case, version, provider, result) do
+    input = result.artifacts |> first_artifact_step() |> Map.get("input", %{})
+
+    Context.new(result.output,
+      rendered_input: input["rendered_prompt"],
+      prompt_template: version.template,
+      variables: test_case.variable_values,
+      messages: Map.get(input, "messages", test_case.messages),
+      documents: Map.get(input, "documents", []),
+      metadata: test_case.metadata,
+      provider: %{
+        "id" => provider.id,
+        "model" => provider.model,
+        "type" => to_string(provider.provider)
+      },
+      prompt_version: %{
+        "id" => version.id,
+        "version" => version.version
+      },
+      execution: %{
+        "input_tokens" => result.input_tokens,
+        "output_tokens" => result.output_tokens,
+        "cost_usd" => result.cost_usd,
+        "latency_ms" => result.latency_ms,
+        "metadata" => result.metadata
+      }
+    )
+  end
+
+  defp first_artifact_step(%{"steps" => [step | _remaining]}) when is_map(step) do
+    step
+  end
+
+  defp first_artifact_step(_artifacts) do
+    %{}
   end
 
   defp successful_test_case_result(
