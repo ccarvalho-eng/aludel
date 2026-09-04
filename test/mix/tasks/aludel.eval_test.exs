@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Aludel.EvalTest do
     payload = Jason.decode!(output)
 
     assert payload["type"] == "aludel_eval"
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["status"] == "passed"
     assert payload["suite_id"] == suite.id
     assert payload["prompt_version_id"] == prompt_version.id
@@ -174,7 +174,7 @@ defmodule Mix.Tasks.Aludel.EvalTest do
 
     assert payload == %{
              "type" => "aludel_eval",
-             "schema_version" => 1,
+             "schema_version" => 2,
              "status" => "error",
              "error" => %{
                "code" => "invalid_arguments",
@@ -200,6 +200,100 @@ defmodule Mix.Tasks.Aludel.EvalTest do
 
     assert payload["status"] == "error"
     assert payload["error"]["code"] == "prompt_version_mismatch"
+  end
+
+  test "emits console, JUnit, and GitHub reports" do
+    Enum.each(
+      [
+        {"console", "Aludel evaluation PASSED"},
+        {"junit", ~s(<testsuites tests="1" failures="0")},
+        {"github", "::notice title=Aludel evaluation::"}
+      ],
+      fn {format, expected} ->
+        %{suite: suite, prompt_version: prompt_version, provider: provider} =
+          evaluation_targets()
+
+        expect(HttpClientMock, :request, fn _model, _prompt, _options ->
+          {:ok, %{content: "Hello Alice", input_tokens: 5, output_tokens: 3}}
+        end)
+
+        output =
+          capture_io(fn ->
+            EvalTask.run(task_args(suite, prompt_version, provider) ++ ["--format", format])
+          end)
+
+        assert output =~ expected
+      end
+    )
+  end
+
+  test "includes generated responses in JUnit only when explicitly requested" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+
+    expect(HttpClientMock, :request, fn _model, _prompt, _options ->
+      {:ok, %{content: "Hello Alice", input_tokens: 5, output_tokens: 3}}
+    end)
+
+    output =
+      capture_io(fn ->
+        EvalTask.run(
+          task_args(suite, prompt_version, provider) ++
+            ["--format", "junit", "--include-output"]
+        )
+      end)
+
+    assert output =~ "<system-out>Hello Alice</system-out>"
+  end
+
+  test "writes a report to the requested output path" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+    output_path = Path.join(System.tmp_dir!(), "aludel-report-#{System.unique_integer()}.xml")
+
+    on_exit(fn -> File.rm(output_path) end)
+
+    expect(HttpClientMock, :request, fn _model, _prompt, _options ->
+      {:ok, %{content: "Hello Alice", input_tokens: 5, output_tokens: 3}}
+    end)
+
+    assert capture_io(fn ->
+             EvalTask.run(
+               task_args(suite, prompt_version, provider) ++
+                 ["--format", "junit", "--output", output_path]
+             )
+           end) == ""
+
+    assert File.read!(output_path) =~ ~s(<testsuites tests="1" failures="0")
+  end
+
+  test "rejects an unsupported report format before execution" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+
+    output =
+      capture_io(fn ->
+        assert_raise Mix.Error, "format must be one of: console, github, json, junit", fn ->
+          EvalTask.run(task_args(suite, prompt_version, provider) ++ ["--format", "html"])
+        end
+      end)
+
+    assert Jason.decode!(output)["error"]["code"] == "invalid_format"
+  end
+
+  test "rejects format-specific options on other reporters before execution" do
+    %{suite: suite, prompt_version: prompt_version, provider: provider} = evaluation_targets()
+
+    for {options, message} <- [
+          {["--format", "console", "--pretty"], "--pretty requires --format json"},
+          {["--format", "json", "--include-output"], "--include-output requires --format junit"}
+        ] do
+      output =
+        capture_io(fn ->
+          assert_raise Mix.Error, message, fn ->
+            EvalTask.run(task_args(suite, prompt_version, provider) ++ options)
+          end
+        end)
+
+      assert Jason.decode!(output)["error"]["code"] == "invalid_options"
+    end
   end
 
   defp evaluation_targets do
