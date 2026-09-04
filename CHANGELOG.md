@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.1] - 2026-09-04
 
+### Security
+- Require Mint 1.10 or later to address HTTP/1 response parsing denial-of-service vulnerabilities in earlier releases
+
 ### Changed
 - Expanded the README and HexDocs with a complete feature catalog, task-oriented evaluation examples, and embedded deployment guidance
 - Reorganized the project wiki into dedicated feature pages covering runs, suites, datasets, analytics, exports, storage, embedding, and demo data
+- Updated root and standalone dependency locks, including current ReqLLM, Ecto SQL, and Telemetry Metrics releases
 
 ## [0.6.0] - 2026-08-30
 
