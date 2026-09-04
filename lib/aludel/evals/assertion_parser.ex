@@ -3,6 +3,7 @@ defmodule Aludel.Evals.AssertionParser do
   Parses and validates assertion payloads from suite editor forms.
   """
 
+  alias Aludel.Evals.JudgeCatalog
   alias Aludel.Evals.Metric.Registry
 
   @type parse_mode :: :json | :visual
@@ -279,27 +280,67 @@ defmodule Aludel.Evals.AssertionParser do
   end
 
   defp validate_rubric_judge_assertion(assertion, idx) do
-    rubric = Map.get(assertion, "rubric")
     provider_id = Map.get(assertion, "provider_id")
 
+    with :ok <- validate_rubric_source(assertion, idx) do
+      cond do
+        not valid_provider_id?(provider_id) ->
+          {:error, "Assertion at index #{idx}: rubric_judge type requires a valid 'provider_id'"}
+
+        not valid_threshold?(assertion["threshold"]) ->
+          {:error,
+           "Assertion at index #{idx}: rubric_judge type requires a threshold between 0 and 100"}
+
+        true ->
+          :ok
+      end
+    end
+  end
+
+  defp validate_rubric_source(assertion, idx) do
+    case {Map.get(assertion, "rubric"), Map.get(assertion, "template")} do
+      {nil, nil} -> invalid_rubric_source(idx)
+      {rubric, nil} -> validate_custom_rubric(rubric, idx)
+      {nil, template_id} -> validate_template(template_id, idx)
+      {_rubric, _template_id} -> invalid_rubric_source(idx)
+    end
+  end
+
+  defp validate_custom_rubric(rubric, idx) when is_binary(rubric) do
     cond do
-      not is_binary(rubric) or String.trim(rubric) == "" ->
+      String.trim(rubric) == "" ->
         {:error,
          "Assertion at index #{idx}: rubric_judge type requires a non-blank 'rubric' field"}
 
       String.length(rubric) > 4_000 ->
         {:error, "Assertion at index #{idx}: rubric_judge rubric cannot exceed 4000 characters"}
 
-      not valid_provider_id?(provider_id) ->
-        {:error, "Assertion at index #{idx}: rubric_judge type requires a valid 'provider_id'"}
-
-      not valid_threshold?(assertion["threshold"]) ->
-        {:error,
-         "Assertion at index #{idx}: rubric_judge type requires a threshold between 0 and 100"}
-
       true ->
         :ok
     end
+  end
+
+  defp validate_custom_rubric(_rubric, idx) do
+    invalid_rubric_source(idx)
+  end
+
+  defp validate_template(template_id, idx) when is_binary(template_id) do
+    case JudgeCatalog.fetch(template_id) do
+      {:ok, _template} ->
+        :ok
+
+      :error ->
+        {:error, "Assertion at index #{idx}: rubric_judge type requires a known 'template' value"}
+    end
+  end
+
+  defp validate_template(_template_id, idx) do
+    invalid_rubric_source(idx)
+  end
+
+  defp invalid_rubric_source(idx) do
+    {:error,
+     "Assertion at index #{idx}: rubric_judge type requires either 'rubric' or a known 'template'"}
   end
 
   defp parse_expected_json(value, idx) when is_binary(value) do

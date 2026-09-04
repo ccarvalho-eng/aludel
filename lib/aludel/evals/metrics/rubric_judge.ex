@@ -10,6 +10,7 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
 
   @behaviour Aludel.Evals.Metric
 
+  alias Aludel.Evals.JudgeCatalog
   alias Aludel.Evals.Metric
   alias Aludel.Evals.Metric.Context
   alias Aludel.Evals.Metric.Evaluator
@@ -40,28 +41,49 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
   @impl true
   def evaluate(
         %Context{} = context,
-        %{"rubric" => rubric, "provider_id" => provider_id} = assertion
+        %{"provider_id" => provider_id} = assertion
       )
-      when is_binary(rubric) and is_binary(provider_id) do
+      when is_binary(provider_id) do
     threshold = threshold(assertion)
 
-    with true <- valid_configuration?(rubric, provider_id, threshold),
-         %Provider{} = provider <- Providers.get_provider(provider_id),
-         {payload, truncated_fields} <- evidence_payload(context, assertion) do
-      provider
-      |> call_judge(payload)
-      |> evaluate_response(provider, threshold, rubric, truncated_fields)
+    with {:ok, rubric, source_metadata} <- rubric_source(assertion),
+         true <- valid_configuration?(rubric, provider_id, threshold) do
+      judge_context = %{
+        rubric: rubric,
+        source_metadata: source_metadata,
+        threshold: threshold,
+        truncated_fields: []
+      }
+
+      evaluate_with_provider(context, assertion, provider_id, judge_context)
     else
-      false ->
+      :error ->
         Metric.invalid_result(type())
 
-      nil ->
-        unavailable_provider_result()
+      false ->
+        Metric.invalid_result(type())
     end
   end
 
   def evaluate(_context, _assertion) do
     Metric.invalid_result(type())
+  end
+
+  defp evaluate_with_provider(context, assertion, provider_id, judge_context) do
+    case Providers.get_provider(provider_id) do
+      %Provider{} = provider ->
+        {payload, truncated_fields} =
+          evidence_payload(context, assertion, judge_context.rubric)
+
+        judge_context = %{judge_context | truncated_fields: truncated_fields}
+
+        provider
+        |> call_judge(payload)
+        |> evaluate_response(provider, judge_context)
+
+      nil ->
+        unavailable_provider_result(judge_context)
+    end
   end
 
   defp call_judge(provider, payload) do
@@ -75,24 +97,18 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
     LLM.call(provider, messages)
   end
 
-  defp evaluate_response(
-         {:ok, response},
-         provider,
-         threshold,
-         rubric,
-         truncated_fields
-       ) do
+  defp evaluate_response({:ok, response}, provider, judge_context) do
     case parse_response(response.output) do
       {:ok, score, reasoning} ->
-        result(provider, response, score, reasoning, threshold, rubric, truncated_fields)
+        result(provider, response, score, reasoning, judge_context)
 
       {:error, :invalid_response} ->
-        invalid_response_result(provider, response)
+        invalid_response_result(provider, response, judge_context)
     end
   end
 
-  defp evaluate_response({:error, reason}, provider, _threshold, _rubric, _truncated_fields) do
-    request_error_result(provider, reason)
+  defp evaluate_response({:error, reason}, provider, judge_context) do
+    request_error_result(provider, reason, judge_context)
   end
 
   defp deterministic_provider(%Provider{} = provider) do
@@ -101,9 +117,9 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
     %{provider | config: config}
   end
 
-  defp evidence_payload(context, assertion) do
+  defp evidence_payload(context, assertion, rubric) do
     fields = [
-      {"rubric", assertion["rubric"]},
+      {"rubric", rubric},
       {"rendered_input", context.rendered_input},
       {"output", context.output},
       {"expected", Map.get(assertion, "expected", context.expected)},
@@ -148,18 +164,13 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
     end
   end
 
-  defp result(provider, response, score, reasoning, threshold, rubric, truncated_fields) do
+  defp result(provider, response, score, reasoning, judge_context) do
     %Result{
       type: type(),
-      passed: score >= threshold,
+      passed: score >= judge_context.threshold,
       score: score,
       reason: reasoning,
-      metadata: %{
-        "rubric" => rubric,
-        "schema_version" => @schema_version,
-        "threshold" => threshold,
-        "truncated_fields" => truncated_fields
-      },
+      metadata: result_metadata(judge_context),
       evaluator: completed_evaluator(provider, response)
     }
   end
@@ -174,7 +185,7 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
     )
   end
 
-  defp invalid_response_result(provider, response) do
+  defp invalid_response_result(provider, response, judge_context) do
     evaluator =
       Evaluator.error(
         %{
@@ -189,10 +200,10 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
         cost_usd: response.cost_usd
       )
 
-    failure_result("Judge returned invalid structured output", evaluator)
+    failure_result("Judge returned invalid structured output", evaluator, judge_context)
   end
 
-  defp request_error_result(provider, reason) do
+  defp request_error_result(provider, reason, judge_context) do
     error = %{
       "type" => request_error_type(reason),
       "message" => "Judge request failed"
@@ -204,27 +215,43 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
         model: provider.model
       )
 
-    failure_result("Judge evaluation failed", evaluator)
+    failure_result("Judge evaluation failed", evaluator, judge_context)
   end
 
-  defp unavailable_provider_result do
+  defp unavailable_provider_result(judge_context) do
     error = %{
       "type" => "provider_not_found",
       "message" => "Configured judge provider was not found"
     }
 
-    failure_result("Judge provider is unavailable", Evaluator.unavailable(error))
+    failure_result(
+      "Judge provider is unavailable",
+      Evaluator.unavailable(error),
+      judge_context
+    )
   end
 
-  defp failure_result(reason, evaluator) do
+  defp failure_result(reason, evaluator, judge_context) do
     %Result{
       type: type(),
       passed: false,
       score: 0.0,
       reason: reason,
-      metadata: %{},
+      metadata: result_metadata(judge_context),
       evaluator: evaluator
     }
+  end
+
+  defp result_metadata(judge_context) do
+    Map.merge(
+      %{
+        "rubric" => judge_context.rubric,
+        "schema_version" => @schema_version,
+        "threshold" => judge_context.threshold,
+        "truncated_fields" => judge_context.truncated_fields
+      },
+      judge_context.source_metadata
+    )
   end
 
   defp request_error_type(reason) when is_atom(reason) do
@@ -251,6 +278,29 @@ defmodule Aludel.Evals.Metrics.RubricJudge do
 
   defp threshold(_assertion) do
     @default_threshold
+  end
+
+  defp rubric_source(assertion) do
+    rubric = assertion["rubric"]
+    template_id = assertion["template"]
+
+    cond do
+      is_binary(rubric) and is_nil(template_id) ->
+        {:ok, rubric, %{}}
+
+      is_nil(rubric) and is_binary(template_id) ->
+        case JudgeCatalog.fetch(template_id) do
+          {:ok, template} ->
+            {:ok, template.rubric,
+             %{"template" => template.id, "template_version" => template.version}}
+
+          :error ->
+            :error
+        end
+
+      true ->
+        :error
+    end
   end
 
   defp valid_configuration?(rubric, provider_id, threshold) do

@@ -117,6 +117,31 @@ Use a rubric judge when correctness depends on meaning rather than an exact stri
 
 Author rubric assertions in the JSON assertion editor. Scores range from 0 to 100, and Aludel derives the pass or fail result from `threshold`; a model-provided verdict is never trusted. Evaluation evidence is bounded and sent as untrusted JSON data so content under test cannot replace the rubric or output contract.
 
+For common checks, replace `rubric` with a versioned built-in `template`:
+
+```json
+[
+  {
+    "type": "rubric_judge",
+    "template": "faithfulness",
+    "provider_id": "00000000-0000-0000-0000-000000000000",
+    "threshold": 85
+  }
+]
+```
+
+| Template | Use it to evaluate |
+|---|---|
+| `correctness` | Agreement with the expected answer and supplied evidence |
+| `relevance` | Whether the response directly addresses the requested task |
+| `faithfulness` | Whether claims are supported by grounding context or documents |
+| `safety` | Harmful, dangerous, or policy-violating assistance |
+| `refusal` | Whether a refusal is appropriate, clear, and useful |
+| `pii` | Disclosure or inference of sensitive personal information |
+| `hallucination` | Fabricated facts, citations, entities, tool results, or outcomes |
+
+Templates and custom rubrics are mutually exclusive. Aludel records the resolved rubric and template version with each result, so a historical run retains the criteria it used.
+
 ## 5. Populate a suite
 
 Create an evaluation suite for the prompt, open it, select a dataset, and choose **Add entries**. Aludel copies entries in dataset order and records each source entry.
