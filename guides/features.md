@@ -43,7 +43,7 @@ Provider forms:
 - store JSON generation configuration for temperature and output limits
 - use built-in per-model token pricing or custom input/output rates
 
-Provider credentials come from application configuration or environment variables and are not stored in provider rows. Ollama does not require an API key and resolves to free token pricing by default.
+Provider credentials come from application configuration or environment variables and are not stored in provider rows. Changeset validation, a database constraint, and execution-boundary sanitization enforce this rule while preserving ordinary generation settings. Ollama does not require an API key and resolves to free token pricing by default.
 
 ## Runs
 

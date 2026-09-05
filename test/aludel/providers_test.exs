@@ -2,6 +2,8 @@ defmodule Aludel.ProvidersTest do
   use Aludel.DataCase, async: true
 
   alias Aludel.Providers
+  alias Aludel.Providers.Provider
+  alias Ecto.Adapters.SQL
 
   describe "providers" do
     test "list_providers/0 returns all providers" do
@@ -132,6 +134,110 @@ defmodule Aludel.ProvidersTest do
                "max_tokens" => 2000,
                "top_p" => 1.0
              }
+    end
+
+    test "rejects credential keys anywhere in provider configuration" do
+      unsafe_configs = [
+        %{"api_key" => "sensitive-value"},
+        %{api_key: "sensitive-value"},
+        %{"OpenAI-API-Key" => "sensitive-value"},
+        %{"headers" => [%{"Authorization" => "sensitive-value"}]},
+        %{"client_secret" => nil},
+        %{"api_secret" => "sensitive-value"},
+        %{"proxy_authorization" => "sensitive-value"},
+        %{"secret_key" => "sensitive-value"},
+        %{"aws_session_token" => "sensitive-value"}
+      ]
+
+      for config <- unsafe_configs do
+        assert {:error, changeset} =
+                 Providers.create_provider(%{
+                   name: "Unsafe Provider",
+                   provider: :openai,
+                   model: "gpt-4o",
+                   config: config
+                 })
+
+        assert errors_on(changeset).config == [
+                 "must not contain credentials; configure them at runtime"
+               ]
+
+        refute inspect(changeset) =~ "sensitive-value"
+      end
+    end
+
+    test "allows safe token-related provider configuration keys" do
+      config = %{
+        "max_tokens" => 1_000,
+        "tokenizer" => "provider-default",
+        "top_p" => 0.9
+      }
+
+      assert {:ok, provider} =
+               Providers.create_provider(%{
+                 name: "Safe Provider",
+                 provider: :openai,
+                 model: "gpt-4o",
+                 config: config
+               })
+
+      assert provider.config == config
+    end
+
+    test "rejects credential updates without changing the stored provider" do
+      provider = provider_fixture(%{config: %{"temperature" => 0.2}})
+
+      assert {:error, changeset} =
+               Providers.update_provider(provider, %{
+                 config: %{
+                   "temperature" => 0.9,
+                   "credentials" => %{"token" => "sensitive-value"}
+                 }
+               })
+
+      assert errors_on(changeset).config == [
+               "must not contain credentials; configure them at runtime"
+             ]
+
+      assert Providers.get_provider!(provider.id).config == %{"temperature" => 0.2}
+    end
+
+    test "redacts provider configuration from inspection" do
+      provider = %Provider{config: %{"api_key" => "sensitive-value"}}
+
+      inspected = inspect(provider)
+
+      refute inspected =~ "sensitive-value"
+      refute inspected =~ "api_key"
+    end
+
+    test "database constraint rejects direct credential persistence" do
+      assert_raise Ecto.ConstraintError, fn ->
+        Aludel.Repo.get().insert!(%Provider{
+          name: "Bypassed Provider",
+          provider: :openai,
+          model: "gpt-4o",
+          config: %{"nested" => %{"access_token" => "sensitive-value"}}
+        })
+      end
+    end
+
+    test "database credential classifier covers common key variants" do
+      keys = [
+        "api_secret",
+        "proxy_authorization",
+        "secret_key",
+        "aws_session_token"
+      ]
+
+      result =
+        SQL.query!(
+          Aludel.Repo.get(),
+          "SELECT aludel_provider_config_credential_key(key_name) FROM unnest($1::text[]) AS key_name",
+          [keys]
+        )
+
+      assert Enum.all?(result.rows, fn [blocked?] -> blocked? end)
     end
 
     test "update_provider/2 with valid data updates the provider" do

@@ -529,6 +529,8 @@ config :aludel, :llm,
   openrouter_api_key: System.get_env("OPENROUTER_API_KEY")
 ```
 
+Provider credentials are runtime-only. Provider configuration accepts generation settings such as `temperature` and `max_tokens`, but rejects credential keys at every nesting level. The database constraint enforces the same rule for direct writes, and the migration removes credential keys from legacy provider configuration.
+
 Ollama runs locally and does not require an API key.
 
 Callback mode does not require Aludel to use those API keys directly, but provider selection still remains part of the current run and suite flows and is passed into the executor for host-app routing when needed.

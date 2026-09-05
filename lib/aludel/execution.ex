@@ -9,6 +9,7 @@ defmodule Aludel.Execution do
   alias Aludel.Executor
   alias Aludel.LLM
   alias Aludel.Prompts.PromptVersion
+  alias Aludel.Providers.ConfigPolicy
   alias Aludel.Providers.Provider
   alias Aludel.Storage
   alias Ecto.Association.NotLoaded
@@ -217,7 +218,7 @@ defmodule Aludel.Execution do
         id: provider.id,
         provider: provider.provider,
         model: provider.model,
-        config: provider.config
+        config: ConfigPolicy.sanitize(provider.config || %{})
       },
       metadata: metadata
     }

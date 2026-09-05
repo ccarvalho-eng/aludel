@@ -6,6 +6,7 @@ defmodule Aludel.Providers.Provider do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aludel.Providers.ConfigPolicy
   alias Ecto.Changeset
 
   @type t :: %__MODULE__{}
@@ -24,7 +25,7 @@ defmodule Aludel.Providers.Provider do
       values: [:openai, :anthropic, :ollama, :google, :xai, :groq, :openrouter]
 
     field :model, :string
-    field :config, :map
+    field :config, :map, redact: true
     field :pricing, :map
     field :model_selection, :string, virtual: true
     field :model_custom, :string, virtual: true
@@ -44,7 +45,21 @@ defmodule Aludel.Providers.Provider do
     |> cast(attrs, @required_fields ++ @optional_fields ++ @virtual_fields)
     |> normalize_model()
     |> validate_required(@required_fields)
+    |> validate_config()
     |> validate_pricing()
+    |> check_constraint(:config,
+      name: :providers_config_no_credentials,
+      message: ConfigPolicy.error_message()
+    )
+  end
+
+  defp validate_config(changeset) do
+    validate_change(changeset, :config, fn :config, config ->
+      case ConfigPolicy.validate(config) do
+        :ok -> []
+        {:error, :credentials_not_allowed} -> [config: ConfigPolicy.error_message()]
+      end
+    end)
   end
 
   defp validate_pricing(changeset) do

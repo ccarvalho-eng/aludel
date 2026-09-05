@@ -130,7 +130,9 @@ config :aludel, :llm,
   openrouter_api_key: System.get_env("OPENROUTER_API_KEY")
 ```
 
-Ollama does not require a key. Provider keys are read at runtime and are not persisted in provider records.
+Ollama does not require a key. Provider keys are read at runtime and are not persisted in provider records. Provider changesets reject credential keys at every nesting level, the database enforces the same policy for direct writes, and execution boundaries defensively remove credential-shaped configuration before injecting runtime keys.
+
+When upgrading from an earlier release, the migration removes credential-shaped keys from existing provider configuration. Rotate any credential that was previously entered there because database backups or historical logs may retain older copies.
 
 ## Run concurrency
 

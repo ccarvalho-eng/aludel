@@ -84,6 +84,8 @@ Register in `lib/aludel/interfaces/llm.ex`:
 Provider credentials are loaded from application configuration. The supported environment
 variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `XAI_API_KEY`,
 `GROQ_API_KEY`, and `OPENROUTER_API_KEY`. Ollama does not require an API key.
+Provider records reject credential-shaped configuration keys recursively, and the execution
+boundary sanitizes provider configuration before adding the runtime key.
 
 ## Swapping HTTP Client
 

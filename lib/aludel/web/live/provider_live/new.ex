@@ -6,6 +6,7 @@ defmodule Aludel.Web.ProviderLive.New do
   use Aludel.Web, :live_view
 
   alias Aludel.Providers
+  alias Aludel.Providers.ConfigPolicy
   alias Aludel.Providers.Provider
 
   @impl Phoenix.LiveView
@@ -27,6 +28,7 @@ defmodule Aludel.Web.ProviderLive.New do
 
   @impl Phoenix.LiveView
   def handle_event("validate", %{"provider" => provider_params}, socket) do
+    config_json = Map.get(provider_params, "config", "")
     provider_type = provider_params["provider"]
     model_groups = Providers.fetch_model_groups(provider_type)
 
@@ -46,7 +48,9 @@ defmodule Aludel.Web.ProviderLive.New do
     changeset =
       socket.assigns.provider
       |> Providers.change_provider(
-        Map.merge(provider_params, %{
+        provider_params
+        |> parse_config()
+        |> Map.merge(%{
           "custom_pricing_enabled" => custom_pricing_enabled,
           "pricing_input" => pricing_input,
           "pricing_output" => pricing_output
@@ -61,7 +65,7 @@ defmodule Aludel.Web.ProviderLive.New do
      |> assign(:model_groups, model_groups)
      |> assign(:model_options, model_options(model_groups))
      |> assign(:form, to_form(changeset))
-     |> assign(:config_json, Map.get(provider_params, "config", ""))
+     |> assign(:config_json, safe_config_json(config_json, changeset))
      |> assign(:default_pricing, default_pricing)
      |> assign(:custom_pricing_enabled, custom_pricing_enabled)
      |> assign(:pricing_input, pricing_input)
@@ -128,7 +132,7 @@ defmodule Aludel.Web.ProviderLive.New do
     |> assign(:provider, provider)
     |> assign(:model_groups, model_groups)
     |> assign(:model_options, model_options(model_groups))
-    |> assign(:config_json, encode_config(provider.config))
+    |> assign(:config_json, provider.config |> ConfigPolicy.sanitize() |> encode_config())
     |> assign(:form, to_form(changeset))
     |> assign(:default_pricing, default_pricing)
     |> assign(:custom_pricing_enabled, has_custom_pricing)
@@ -153,7 +157,7 @@ defmodule Aludel.Web.ProviderLive.New do
         {:noreply,
          socket
          |> assign(:form, to_form(changeset))
-         |> assign(:config_json, config_json)}
+         |> assign(:config_json, safe_config_json(config_json, changeset))}
     end
   end
 
@@ -174,7 +178,7 @@ defmodule Aludel.Web.ProviderLive.New do
         {:noreply,
          socket
          |> assign(:form, to_form(changeset))
-         |> assign(:config_json, config_json)}
+         |> assign(:config_json, safe_config_json(config_json, changeset))}
     end
   end
 
@@ -197,6 +201,64 @@ defmodule Aludel.Web.ProviderLive.New do
   defp encode_config(nil), do: ""
   defp encode_config(config) when map_size(config) == 0, do: ""
   defp encode_config(config), do: Jason.encode!(config, pretty: true)
+
+  defp safe_config_json(config_json, changeset) do
+    if credential_config_error?(changeset) or credential_key_in_json?(config_json) do
+      sanitize_config_json(config_json)
+    else
+      config_json
+    end
+  end
+
+  defp credential_config_error?(changeset) do
+    Enum.any?(changeset.errors, fn
+      {:config, {message, _opts}} -> message == ConfigPolicy.error_message()
+      _other -> false
+    end)
+  end
+
+  defp sanitize_config_json(config_json) when is_binary(config_json) do
+    case Jason.decode(config_json) do
+      {:ok, config} when is_map(config) ->
+        config
+        |> ConfigPolicy.sanitize()
+        |> encode_config()
+
+      _invalid_or_non_map ->
+        ""
+    end
+  end
+
+  defp sanitize_config_json(_config_json) do
+    ""
+  end
+
+  defp credential_key_in_json?(config_json) when is_binary(config_json) do
+    case Jason.decode(config_json) do
+      {:ok, config} ->
+        ConfigPolicy.validate(config) != :ok
+
+      {:error, _reason} ->
+        credential_key_in_malformed_json?(config_json)
+    end
+  end
+
+  defp credential_key_in_json?(_config_json) do
+    false
+  end
+
+  defp credential_key_in_malformed_json?(config_json) do
+    ~r/"((?:\\.|[^"\\])*)"\s*:/u
+    |> Regex.scan(config_json, capture: :all_but_first)
+    |> Enum.any?(&encoded_credential_key?/1)
+  end
+
+  defp encoded_credential_key?([encoded_key]) do
+    case Jason.decode(~s("#{encoded_key}")) do
+      {:ok, key} -> ConfigPolicy.validate(%{key => nil}) != :ok
+      {:error, _reason} -> false
+    end
+  end
 
   defp normalize_model_params(params) do
     case params["model_selection"] do

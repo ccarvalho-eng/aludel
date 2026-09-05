@@ -14,7 +14,7 @@ defmodule Aludel.Interfaces.LLM.Config do
   end
 
   @doc """
-  Extracts and validates API key from provider config.
+  Extracts and validates the API key injected into request-scoped configuration.
 
   Returns `{:ok, key}` if valid, `{:error, :missing_api_key}` otherwise.
   """

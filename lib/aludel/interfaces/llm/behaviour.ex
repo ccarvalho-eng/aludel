@@ -26,7 +26,7 @@ defmodule Aludel.Interfaces.LLM.Behaviour do
   ## Parameters
     - model: Model identifier (e.g., "gpt-4o", "claude-3-5-sonnet")
     - prompt: Text prompt or normalized conversation messages to send to the model
-    - config: Provider configuration (API keys, temperature, etc.)
+    - config: Request-scoped configuration assembled from runtime credentials and safe provider settings
     - opts: Additional options (e.g., documents for vision models)
 
   ## Returns
