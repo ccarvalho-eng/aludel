@@ -61,8 +61,11 @@ defmodule Aludel.ExecutionTest do
       provider_fixture(%{
         provider: :openai,
         model: "gpt-4o-mini",
-        config: %{"api_key" => "must-not-be-persisted"}
+        config: %{"temperature" => 0.2}
       })
+
+    dirty_provider =
+      %{provider | config: Map.put(provider.config, "api_key", "must-not-be-persisted")}
 
     expect(HttpClientMock, :request, fn _model, "Return JSON for Alice", _opts ->
       {:ok, %{content: ~s({"name":"Alice"}), input_tokens: 5, output_tokens: 7}}
@@ -73,7 +76,7 @@ defmodule Aludel.ExecutionTest do
                kind: :run,
                prompt_version: version,
                variables: %{"name" => "Alice"},
-               provider: provider,
+               provider: dirty_provider,
                documents: [],
                metadata: %{run_id: Ecto.UUID.generate()}
              })
@@ -161,6 +164,40 @@ defmodule Aludel.ExecutionTest do
                prompt_version: version,
                variables: %{"name" => "Alice"},
                provider: provider,
+               documents: [],
+               metadata: %{run_id: Ecto.UUID.generate()}
+             })
+  end
+
+  test "removes credentials before invoking callback executors" do
+    Application.put_env(:aludel, :execution_mode, :callback)
+    Application.put_env(:aludel, :executor, Aludel.ExecutorMock)
+
+    prompt = prompt_fixture()
+    {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Hello {{name}}")
+    provider = provider_fixture(%{config: %{"temperature" => 0.2}})
+
+    dirty_provider = %{
+      provider
+      | config: %{
+          "api_secret" => "sensitive-value",
+          "temperature" => 0.2,
+          "headers" => [%{"Proxy-Authorization" => "sensitive-value"}]
+        }
+    }
+
+    expect(Aludel.ExecutorMock, :run, fn input ->
+      assert input.provider.config == %{"headers" => [%{}], "temperature" => 0.2}
+      refute inspect(input) =~ "sensitive-value"
+      {:ok, %{output: "Hello Alice"}}
+    end)
+
+    assert {:ok, _result} =
+             Execution.execute(%{
+               kind: :run,
+               prompt_version: version,
+               variables: %{"name" => "Alice"},
+               provider: dirty_provider,
                documents: [],
                metadata: %{run_id: Ecto.UUID.generate()}
              })

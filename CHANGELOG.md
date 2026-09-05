@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Render persisted prompt tags as text instead of reparsing them as HTML
 - Isolate PDF conversion in private workspaces and process groups, with bounded input, output, diagnostics, execution time, and ImageMagick resources
 - Bound regular expression assertion size, matching work, recursion depth, and wall-clock time
+- Reject provider credentials in persisted configuration, remove legacy credential keys, and sanitize runtime and callback boundaries
 
 ## [0.6.1] - 2026-09-04
 

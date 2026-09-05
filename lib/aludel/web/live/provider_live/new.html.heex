@@ -190,9 +190,16 @@
                 class="w-full textarea font-mono text-[13px]"
               >{@config_json}</textarea>
             </label>
+            <p
+              :if={@form[:config].errors != []}
+              id="provider_config-error"
+              class="mt-2 text-sm text-error"
+            >
+              {Enum.map_join(@form[:config].errors, ", ", &translate_error/1)}
+            </p>
           </div>
           <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-            Optional: Model parameters as JSON (temperature, max_tokens, etc.). API keys are set via environment variables.
+            Optional: Model parameters as JSON (temperature, max_tokens, etc.). Credentials are runtime-only and rejected from this field.
           </div>
         </div>
 

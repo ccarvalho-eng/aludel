@@ -36,6 +36,7 @@ defmodule Aludel.LLM do
     XAI
   }
 
+  alias Aludel.Providers.ConfigPolicy
   alias Aludel.Providers.Pricing
   alias Aludel.Providers.Provider
 
@@ -127,7 +128,7 @@ defmodule Aludel.LLM do
   defp get_provider(provider_name), do: Map.fetch!(@providers, provider_name)
 
   defp build_config(provider) do
-    base_config = provider.config || %{}
+    base_config = ConfigPolicy.sanitize(provider.config || %{})
 
     api_key = configured_api_key(provider.provider)
 

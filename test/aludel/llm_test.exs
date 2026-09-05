@@ -45,6 +45,27 @@ defmodule Aludel.LLMTest do
       end
     end
 
+    test "does not use API keys from an in-memory provider config" do
+      original_config = Application.get_env(:aludel, :llm)
+      Application.put_env(:aludel, :llm, openai_api_key: nil)
+
+      try do
+        provider =
+          provider_fixture(%{
+            provider: :openai,
+            model: "gpt-4o",
+            config: %{"temperature" => 0.2}
+          })
+
+        dirty_provider =
+          %{provider | config: %{"api_key" => "sensitive-value", "temperature" => 0.2}}
+
+        assert {:error, :missing_api_key} = LLM.call(dirty_provider, "test", [])
+      after
+        Application.put_env(:aludel, :llm, original_config)
+      end
+    end
+
     test "returns structured response with all required fields" do
       mock_response = build_mock_response("Hello! How can I help?", 5, 10)
 
@@ -647,7 +668,7 @@ defmodule Aludel.LLMTest do
         provider_fixture(%{
           provider: :openai,
           model: "gpt-4o",
-          config: %{"api_key" => "sk-test-key"}
+          config: %{"temperature" => 0.7}
         })
 
       assert {:ok, result} =

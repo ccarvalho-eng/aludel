@@ -188,6 +188,83 @@ defmodule Aludel.Web.ProviderLive.NewTest do
       assert provider.config == %{"temperature" => 0.2, "max_tokens" => 512}
     end
 
+    test "rejects credential configuration without rendering its value", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/providers/new")
+
+      view
+      |> form("#provider-form", provider: %{provider: "openai", model_selection: "custom"})
+      |> render_change()
+
+      html =
+        view
+        |> form("#provider-form",
+          provider: %{
+            name: "Unsafe Provider",
+            provider: "openai",
+            model_selection: "custom",
+            model_custom: "gpt-4.1",
+            config: ~s({"temperature":0.2,"api_key":"sensitive-value"})
+          }
+        )
+        |> render_submit()
+
+      assert html =~ "must not contain credentials; configure them at runtime"
+      assert html =~ "temperature"
+      refute html =~ "sensitive-value"
+      refute html =~ "api_key"
+      assert Providers.list_providers() == []
+    end
+
+    test "does not reflect credential values from malformed configuration", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/providers/new")
+
+      view
+      |> form("#provider-form", provider: %{provider: "openai", model_selection: "custom"})
+      |> render_change()
+
+      html =
+        view
+        |> form("#provider-form",
+          provider: %{
+            name: "Unsafe Provider",
+            provider: "openai",
+            model_selection: "custom",
+            model_custom: "gpt-4.1",
+            config: ~s({"api_secret":"sensitive-value")
+          }
+        )
+        |> render_submit()
+
+      refute html =~ "sensitive-value"
+      refute html =~ "api_secret"
+      assert Providers.list_providers() == []
+    end
+
+    test "does not reflect credential values from non-object configuration", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/providers/new")
+
+      view
+      |> form("#provider-form", provider: %{provider: "openai", model_selection: "custom"})
+      |> render_change()
+
+      html =
+        view
+        |> form("#provider-form",
+          provider: %{
+            name: "Unsafe Provider",
+            provider: "openai",
+            model_selection: "custom",
+            model_custom: "gpt-4.1",
+            config: ~s([{"aws_session_token":"sensitive-value"}])
+          }
+        )
+        |> render_submit()
+
+      refute html =~ "sensitive-value"
+      refute html =~ "aws_session_token"
+      assert Providers.list_providers() == []
+    end
+
     test "shows Google Gemini in provider type dropdown", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/providers/new")
 
