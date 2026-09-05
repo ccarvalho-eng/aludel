@@ -80,7 +80,7 @@ For product-specific cases, call `Aludel.RedTeam.generate/2` and review the retu
 ]
 ```
 
-`regex` fails cleanly when the pattern is invalid. `exact_match` compares the entire output without trimming or normalization.
+`regex` validates patterns before they are saved and fails cleanly when a direct caller supplies an invalid pattern. Patterns are limited to 4 KiB and evaluated against at most 1 MiB of output with bounded matching depth, work, and wall-clock time. A limit produces a normalized failed assertion and does not stop the remaining suite cases. `exact_match` compares the entire output without trimming or normalization.
 
 ### Typed JSON field
 

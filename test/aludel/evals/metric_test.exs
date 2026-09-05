@@ -221,6 +221,89 @@ defmodule Aludel.Evals.MetricTest do
       assert result["score"] == 0.0
     end
 
+    test "preserves regular expression match and non-match behavior" do
+      assertion = %{"type" => "regex", "value" => "(?i)^confidence: \\d+%$"}
+
+      matching_result = AssertionEvaluator.evaluate("Confidence: 92%", assertion)
+      non_matching_result = AssertionEvaluator.evaluate("Confidence: high", assertion)
+
+      assert %{
+               "passed" => true,
+               "score" => 100.0,
+               "reason" => "Output matches regular expression",
+               "metadata" => %{"valid_pattern" => true}
+             } = matching_result
+
+      assert %{
+               "passed" => false,
+               "reason" => "Output does not match regular expression",
+               "metadata" => %{"valid_pattern" => true}
+             } = non_matching_result
+
+      assert non_matching_result["score"] == 0.0
+    end
+
+    test "bounds regular expression backtracking" do
+      output = String.duplicate("a", 10_000) <> "!"
+
+      result =
+        AssertionEvaluator.evaluate(output, %{
+          "type" => "regex",
+          "value" => "(*NO_START_OPT)(*NO_AUTO_POSSESS)(a+)+$"
+        })
+
+      assert %{
+               "passed" => false,
+               "reason" => "Regular expression evaluation exceeded resource limits",
+               "metadata" => %{
+                 "limit_exceeded" => "match_limit",
+                 "valid_pattern" => true
+               },
+               "evaluator" => %{
+                 "status" => "error",
+                 "error" => %{"type" => "regex_resource_limit"}
+               }
+             } = result
+    end
+
+    test "rejects oversized regular expression inputs" do
+      output = String.duplicate("a", 1_048_577)
+
+      result = AssertionEvaluator.evaluate(output, %{"type" => "regex", "value" => "a"})
+
+      assert %{
+               "passed" => false,
+               "reason" => "Regular expression evaluation exceeded resource limits",
+               "metadata" => %{
+                 "limit_exceeded" => "input_size",
+                 "valid_pattern" => true
+               },
+               "evaluator" => %{
+                 "status" => "error",
+                 "error" => %{"type" => "regex_resource_limit"}
+               }
+             } = result
+    end
+
+    test "rejects oversized regular expression patterns at evaluation time" do
+      pattern = String.duplicate("a", 4_097)
+
+      result = AssertionEvaluator.evaluate("output", %{"type" => "regex", "value" => pattern})
+
+      assert %{
+               "passed" => false,
+               "reason" => "Regular expression pattern exceeds 4096 bytes",
+               "metadata" => %{
+                 "limit_exceeded" => "pattern_size",
+                 "valid_pattern" => false
+               },
+               "evaluator" => %{
+                 "status" => "error",
+                 "error" => %{"type" => "regex_resource_limit"}
+               }
+             } = result
+    end
+
     test "normalizes JSON field evidence while preserving actual_value" do
       result =
         AssertionEvaluator.evaluate(~s({"count": 2}), %{
