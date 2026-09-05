@@ -29,6 +29,7 @@ defmodule Aludel.Prompts.Evolution do
   end
 
   @doc false
+  @spec calculate_avg_cost([map()]) :: Decimal.t() | nil
   def calculate_avg_cost([]) do
     nil
   end
@@ -50,6 +51,7 @@ defmodule Aludel.Prompts.Evolution do
   end
 
   @doc false
+  @spec calculate_avg_latency([map()]) :: integer() | nil
   def calculate_avg_latency([]) do
     nil
   end
@@ -68,6 +70,7 @@ defmodule Aludel.Prompts.Evolution do
   end
 
   @doc false
+  @spec calculate_avg_score([map()]) :: Decimal.t() | nil
   def calculate_avg_score([]) do
     nil
   end

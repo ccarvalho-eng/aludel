@@ -8,6 +8,12 @@ defmodule Aludel.Evals.AssertionEvaluator do
   alias Aludel.Evals.Metric.Registry
   alias Aludel.Evals.Metric.Result
 
+  @doc """
+  Evaluates an assertion against generated output or a complete metric context.
+
+  Returns the legacy string-keyed result map used by suite runs and exports. An
+  unknown metric type produces a failed result instead of raising.
+  """
   @spec evaluate(Context.t() | String.t(), map()) :: map()
   def evaluate(input, assertion) do
     case Registry.evaluate(input, assertion) do
@@ -19,6 +25,11 @@ defmodule Aludel.Evals.AssertionEvaluator do
     end
   end
 
+  @doc """
+  Calculates the mean numeric score from assertion result maps.
+
+  Returns `nil` when the list is empty or contains no numeric `"score"` values.
+  """
   @spec score_for_results([map()]) :: float() | nil
   def score_for_results([]) do
     nil

@@ -36,6 +36,12 @@ defmodule Aludel.Evals.Metric do
     output
   end
 
+  @doc """
+  Builds a normalized metric result from a boolean decision.
+
+  Passing results score `100.0`; failing results score `0.0`. The selected
+  reason and optional metadata are retained in the result.
+  """
   @spec boolean_result(String.t(), boolean(), String.t(), String.t(), map()) :: Result.t()
   def boolean_result(type, passed, success_reason, failure_reason, metadata \\ %{}) do
     %Result{
@@ -47,6 +53,9 @@ defmodule Aludel.Evals.Metric do
     }
   end
 
+  @doc """
+  Decodes JSON output after removing an optional Markdown code fence.
+  """
   @spec decode_json(String.t()) :: {:ok, json_value()} | {:error, Jason.DecodeError.t()}
   def decode_json(output) do
     output
@@ -58,6 +67,12 @@ defmodule Aludel.Evals.Metric do
     |> Jason.decode()
   end
 
+  @doc """
+  Compares JSON-compatible values while preserving scalar types.
+
+  Maps and lists are compared through their encoded JSON representation while
+  scalar values use strict Elixir equality.
+  """
   @spec compare_json_values(term(), term()) :: boolean()
   def compare_json_values(actual, expected) when is_map(actual) or is_list(actual) do
     Jason.encode!(actual) == Jason.encode!(expected)
@@ -67,6 +82,9 @@ defmodule Aludel.Evals.Metric do
     actual == expected
   end
 
+  @doc """
+  Returns an assertion's numeric threshold or the default of `100.0`.
+  """
   @spec normalize_threshold(map()) :: float()
   def normalize_threshold(%{"threshold" => threshold}) when is_integer(threshold) do
     threshold / 1
@@ -80,6 +98,9 @@ defmodule Aludel.Evals.Metric do
     @default_threshold
   end
 
+  @doc """
+  Returns a failed result for an invalid metric configuration.
+  """
   @spec invalid_result(String.t()) :: Result.t()
   def invalid_result(type) do
     %Result{

@@ -94,6 +94,9 @@ defmodule Aludel.Evals.TestCaseDocument do
     |> foreign_key_constraint(:test_case_id)
   end
 
+  @doc """
+  Returns whether the document references content in a configured storage backend.
+  """
   @spec externally_stored?(t()) :: boolean()
   def externally_stored?(%__MODULE__{storage_key: storage_key}), do: is_binary(storage_key)
 

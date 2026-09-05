@@ -11,12 +11,20 @@ defmodule Aludel.Stats.Costs do
   alias Aludel.Stats.Overview
   alias Aludel.Stats.Shared
 
+  @doc """
+  Returns the average recorded cost across prompt runs and suite runs.
+  """
   @spec cost_per_run() :: float()
   def cost_per_run do
     total = Overview.total_runs()
     if total > 0, do: Runs.total_cost() / total, else: 0.0
   end
 
+  @doc """
+  Aggregates recorded prompt-run and suite-run costs by provider.
+
+  Results are ordered from highest to lowest total cost.
+  """
   @spec cost_by_provider() :: [map()]
   def cost_by_provider do
     run_costs =
@@ -69,6 +77,11 @@ defmodule Aludel.Stats.Costs do
     |> Enum.sort_by(& &1.total_cost, :desc)
   end
 
+  @doc """
+  Aggregates recorded prompt-run and suite-run costs by prompt.
+
+  Results are ordered from highest to lowest total cost.
+  """
   @spec cost_by_prompt() :: [map()]
   def cost_by_prompt do
     run_costs =

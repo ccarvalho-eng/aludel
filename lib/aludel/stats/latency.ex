@@ -8,6 +8,11 @@ defmodule Aludel.Stats.Latency do
   alias Aludel.Runs.RunResult
   alias Aludel.Stats.Shared
 
+  @doc """
+  Returns the median and 95th-percentile latency for recorded prompt results.
+
+  Both values are zero when no latency samples are available.
+  """
   @spec latency_percentiles() :: %{p50: number(), p95: number()}
   def latency_percentiles do
     result =
@@ -40,6 +45,11 @@ defmodule Aludel.Stats.Latency do
     end
   end
 
+  @doc """
+  Aggregates prompt-result latency statistics by provider.
+
+  Results are ordered from lowest to highest average latency.
+  """
   @spec latency_by_provider() :: [map()]
   def latency_by_provider do
     from(rr in RunResult,

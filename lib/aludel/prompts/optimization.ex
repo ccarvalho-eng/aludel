@@ -21,6 +21,13 @@ defmodule Aludel.Prompts.Optimization do
   alias Aludel.Prompts.{Prompt, PromptSuggestion, PromptVersion}
   alias Aludel.Providers.Provider
 
+  @doc """
+  Classifies prompt-version metrics by multi-objective Pareto status.
+
+  Candidates missing pass rate, cost per passed test, or latency per passed test
+  are marked `:insufficient`. Eligible candidates are marked `:frontier` unless
+  another candidate is no worse on every objective and better on at least one.
+  """
   @spec analyze([map()]) :: %{candidates: [map()], frontier: [map()]}
   def analyze(metrics) do
     candidates = Enum.map(metrics, &annotate_candidate(&1, metrics))
@@ -31,6 +38,9 @@ defmodule Aludel.Prompts.Optimization do
     }
   end
 
+  @doc """
+  Lists prompt suggestions newest first with their related records preloaded.
+  """
   @spec list_suggestions(binary()) :: [PromptSuggestion.t()]
   def list_suggestions(prompt_id) do
     PromptSuggestion
@@ -40,6 +50,12 @@ defmodule Aludel.Prompts.Optimization do
     |> repo().all()
   end
 
+  @doc """
+  Persists a prompt suggestion from validated attributes.
+
+  Most callers should use `generate_suggestion/3`, which constructs a suggestion
+  from bounded evaluation evidence.
+  """
   @spec create_suggestion(map()) ::
           {:ok, PromptSuggestion.t()} | {:error, Ecto.Changeset.t()}
   def create_suggestion(attrs) do
@@ -48,6 +64,14 @@ defmodule Aludel.Prompts.Optimization do
     |> repo().insert()
   end
 
+  @doc """
+  Generates a prompt revision from recent failed suite results.
+
+  The source version and suite must belong to the same prompt. Only one pending
+  suggestion is allowed for a source-version, suite, and provider combination.
+  No suggestion is persisted when evidence is unavailable or the generated
+  template fails validation.
+  """
   @spec generate_suggestion(binary(), binary(), binary()) ::
           {:ok, PromptSuggestion.t()} | {:error, term()}
   def generate_suggestion(source_version_id, suite_id, provider_id) do
@@ -84,6 +108,12 @@ defmodule Aludel.Prompts.Optimization do
     end
   end
 
+  @doc """
+  Accepts a pending suggestion and creates an immutable prompt version.
+
+  Pass `prompt_id` to scope the transition when accepting from a prompt-specific
+  interface. Concurrent and repeated transitions return an error.
+  """
   @spec accept_suggestion(binary(), binary() | nil) ::
           {:ok, PromptSuggestion.t()} | {:error, term()}
   def accept_suggestion(suggestion_id, prompt_id \\ nil) do
@@ -105,6 +135,13 @@ defmodule Aludel.Prompts.Optimization do
     end)
   end
 
+  @doc """
+  Dismisses a pending suggestion without creating a prompt version.
+
+  Pass `prompt_id` to scope the transition when dismissing from a
+  prompt-specific interface. Concurrent and repeated transitions return an
+  error.
+  """
   @spec dismiss_suggestion(binary(), binary() | nil) ::
           {:ok, PromptSuggestion.t()} | {:error, term()}
   def dismiss_suggestion(suggestion_id, prompt_id \\ nil) do

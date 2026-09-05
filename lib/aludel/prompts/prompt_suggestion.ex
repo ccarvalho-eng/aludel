@@ -41,6 +41,9 @@ defmodule Aludel.Prompts.PromptSuggestion do
     timestamps(type: :utc_datetime)
   end
 
+  @doc """
+  Builds a changeset for a generated prompt suggestion and its review state.
+  """
   @spec changeset(t(), map()) :: Changeset.t()
   def changeset(suggestion, attrs) do
     suggestion

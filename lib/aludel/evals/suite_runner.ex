@@ -12,6 +12,12 @@ defmodule Aludel.Evals.SuiteRunner do
 
   @type execution_result :: {:ok, SuiteRun.t()} | {:error, term()}
 
+  @doc """
+  Starts supervised suite execution and sends the result to `recipient`.
+
+  The recipient receives `{:suite_completed, result}`, where `result` follows
+  the `execute/4` contract.
+  """
   @spec launch(pid(), binary(), binary(), binary(), keyword()) ::
           {:ok, pid()} | {:error, term()}
   def launch(recipient, suite_id, version_id, provider_id, opts \\ [])
@@ -22,6 +28,12 @@ defmodule Aludel.Evals.SuiteRunner do
     end)
   end
 
+  @doc """
+  Loads a suite, prompt version, and provider by ID, then executes the suite.
+
+  Missing records and execution failures are returned as error tuples rather
+  than escaping the supervised task.
+  """
   @spec execute(binary(), binary(), binary(), keyword()) :: execution_result()
   def execute(suite_id, version_id, provider_id, opts \\ [])
       when is_binary(suite_id) and is_binary(version_id) and is_binary(provider_id) do
