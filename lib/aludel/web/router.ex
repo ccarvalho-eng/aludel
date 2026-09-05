@@ -80,6 +80,12 @@ defmodule Aludel.Web.Router do
           live "/suites/:id", Aludel.Web.SuiteLive.Show, :show, route_opts
 
           live "/datasets", Aludel.Web.DatasetLive.Index, :index, route_opts
+
+          live "/datasets/:id/red-team/catalog",
+               Aludel.Web.DatasetLive.RedTeamCatalog,
+               :show,
+               route_opts
+
           live "/datasets/:id", Aludel.Web.DatasetLive.Show, :show, route_opts
 
           live "/providers", Aludel.Web.ProviderLive.Index, :index, route_opts

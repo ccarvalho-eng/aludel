@@ -4,6 +4,12 @@
 
 The catalog aligns its categories with the [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) and the [NIST Generative AI Profile](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf). These cases are regression-test seeds, not a complete security assessment or compliance certification.
 
+## Dashboard workflow
+
+Open a dataset and choose **Add red-team cases**. The catalog page exposes each case's prompt, stable version, category, severity, technique, risk reference, deterministic canary assertion, and recommended judge. Select the exact cases to add, set the prompt variable, and optionally choose a configured judge provider with a 0–100 threshold.
+
+Materialization writes the complete selection transactionally and reports how many entries were created or already present. Repeating an identical selection is safe. A conflicting existing entry is not overwritten. Return to the dataset to inspect or edit the ordinary entries, then populate a suite as usual.
+
 ## Catalog
 
 The core catalog currently contains:
@@ -180,4 +186,4 @@ The catalog is exposed through the Elixir API. Its output is normal dataset data
 3. Run the suite in the dashboard, with `mix aludel.eval`, through ExUnit, or with `Aludel.Evals.execute_suite/4`.
 4. Apply quality policies and reporters exactly as you would for any other suite.
 
-There is no separate red-team CLI command or catalog browser in the dashboard in this release.
+Catalog browsing and materialization are available in the dashboard and Elixir API. There is no separate red-team CLI command. Generated-case generation, review, and approval/import remain API-only until the separate dashboard review workflow is configured.

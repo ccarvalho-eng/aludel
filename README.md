@@ -137,6 +137,8 @@ See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#repeat-non
 
 Materialize a versioned set of adversarial cases into any reusable dataset:
 
+In the dashboard, open a dataset and choose **Add red-team cases**. Browse every catalog prompt, risk reference, severity, technique, deterministic canary, and recommended judge before selecting exact cases. Choose the target prompt variable and optionally a configured judge provider and threshold; the result reports newly created and already-present entries.
+
 ```elixir
 {:ok, dataset} = Aludel.Datasets.create_dataset(%{name: "Security regressions"})
 
@@ -182,7 +184,7 @@ approved_case_ids =
 
 Import revalidates the generation and candidate checksums, requires at least one unique approved ID, attaches each candidate's recommended rubric judge, records generation and review provenance, and skips only an exact prior import. Any conflict rolls back the complete approved selection.
 
-Catalog materialization and generated-case generation, review, and import are Elixir API features. Persisted cases use the normal dataset and suite workflows in the dashboard, `mix aludel.eval`, ExUnit, and the library API. There is no separate red-team CLI command or generation/import form in the dashboard yet.
+Curated catalog browsing and materialization are available in the dashboard and Elixir API. Generated-case generation, review, and import remain Elixir API features until the separate review workflow is configured. Persisted cases use the normal dataset and suite workflows in the dashboard, `mix aludel.eval`, ExUnit, and the library API. There is no separate red-team CLI command.
 
 See the [red-team guide](https://hexdocs.pm/aludel/red_team.html), [curated datasets wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Red-Team-Datasets), and [generated cases wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Generated-Red-Team-Cases) for category filters, review, budgets, provenance, and rerun behavior.
 
