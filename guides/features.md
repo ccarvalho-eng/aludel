@@ -168,7 +168,7 @@ The embedded dashboard supports:
 - self-contained versioned CSS and JavaScript plus packaged fonts, icons, and images
 - light, dark, and system themes
 
-The standalone release adds optional HTTP Basic Authentication and read-only mode. See the [Embedding Guide](embedding.md) for configuration.
+The standalone release requires HTTP Basic Authentication in production and supports server-enforced read-only mode. Local development remains unauthenticated on loopback. See the [Embedding Guide](embedding.md) for configuration and TLS guidance.
 
 ## Demo data
 

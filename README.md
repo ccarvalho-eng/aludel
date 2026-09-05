@@ -473,13 +473,15 @@ mix aludel.seed
 
 Visit `http://localhost:4000`.
 
-The standalone release also supports optional HTTP Basic Authentication and read-only access:
+The standalone release requires HTTP Basic Authentication in production and also supports read-only access:
 
 ```bash
 export BASIC_AUTH_USER=admin
-export BASIC_AUTH_PASS=change-me
+export BASIC_AUTH_PASS="$(openssl rand -base64 32)"
 export READ_ONLY=true
 ```
+
+Production startup rejects missing, partial, or blank credentials. Local development remains unauthenticated and binds only to loopback. Serve production Basic Authentication over TLS; if a reverse proxy terminates TLS, preserve the `Authorization` header and do not expose the backend port directly.
 
 To smoke-test callback mode in the standalone app, configure a local executor module in `standalone/lib/aludel_dash.ex` or another module loaded by the standalone app, then add:
 
