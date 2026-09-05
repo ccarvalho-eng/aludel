@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move curated Unreleased entries into the versioned changelog section during release preparation
 - Make Hex release reruns recover interrupted GitHub releases and documentation publication safely
 
+### Changed
+- Add repeatable quality gates for high-signal code smells, compile cycles, duplicate code, documentation coverage, dependency advisories, and static analysis
+
 ## [0.6.1] - 2026-09-04
 
 ### Security

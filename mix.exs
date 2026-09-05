@@ -17,6 +17,7 @@ defmodule Aludel.MixProject do
         "coveralls.post": :test,
         "coveralls.html": :test,
         "coveralls.json": :test,
+        quality: :test,
         precommit: :test
       ],
       dialyzer: [
@@ -70,7 +71,7 @@ defmodule Aludel.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [quality: :test, precommit: :test]
     ]
   end
 
@@ -136,6 +137,9 @@ defmodule Aludel.MixProject do
       # Code quality and testing
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:doctor, "~> 0.23.0", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.4.2", only: [:dev, :test], runtime: false},
       {:sobelow, "~> 0.14", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test},
@@ -162,14 +166,19 @@ defmodule Aludel.MixProject do
         "esbuild aludel --minify",
         "phx.digest"
       ],
-      precommit: [
+      quality: [
         "compile --warnings-as-errors",
+        "xref graph --format cycles --label compile-connected --fail-above 0",
         "deps.unlock --check-unused",
         "format --check-formatted",
         "credo --strict",
-        "sobelow --config .sobelow-conf",
-        "test"
-      ]
+        "quality.ex_dna",
+        "doctor --raise",
+        "deps.audit",
+        "dialyzer"
+      ],
+      precommit: ["quality", "sobelow --config .sobelow-conf", "test"],
+      "quality.ex_dna": ["ex_dna --min-mass 40 --max-clones 7 --format console"]
     ]
   end
 end
