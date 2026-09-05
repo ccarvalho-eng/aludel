@@ -43,11 +43,23 @@ defmodule Aludel.Executor do
 
   @callback run(input()) :: {:ok, result()} | {:error, term()}
 
+  @doc """
+  Returns the raw configured execution mode, defaulting to `:native`.
+
+  Use `configured_execution_mode/0` when validating configuration at a runtime
+  boundary.
+  """
   @spec execution_mode() :: term()
   def execution_mode do
     Application.get_env(:aludel, :execution_mode, :native)
   end
 
+  @doc """
+  Validates and normalizes the configured execution mode.
+
+  An unset value selects native execution. Any value other than `:native` or
+  `:callback` returns an `:invalid_execution_mode` error.
+  """
   @spec configured_execution_mode() ::
           {:ok, :native | :callback} | {:error, {:invalid_execution_mode, term()}}
   def configured_execution_mode do
@@ -59,6 +71,9 @@ defmodule Aludel.Executor do
     end
   end
 
+  @doc """
+  Returns the execution mode label used by the web interface.
+  """
   @spec execution_mode_label() :: String.t()
   def execution_mode_label do
     case configured_execution_mode() do
@@ -68,6 +83,12 @@ defmodule Aludel.Executor do
     end
   end
 
+  @doc """
+  Resolves the configured callback executor module.
+
+  The module must be loaded and export `run/1`. Missing and invalid
+  configuration return tagged errors instead of raising.
+  """
   @spec configured_executor() :: {:ok, module()} | {:error, :executor_not_configured | term()}
   def configured_executor do
     case Application.get_env(:aludel, :executor) do

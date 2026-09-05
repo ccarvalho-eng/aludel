@@ -26,6 +26,12 @@ defmodule Aludel.Datasets.Dataset do
     timestamps(type: :utc_datetime)
   end
 
+  @doc """
+  Builds a changeset for a dataset.
+
+  Names are required and limited to 200 characters. Metadata must be JSON
+  encodable so it can be persisted and queried consistently.
+  """
   @spec changeset(t(), map()) :: Changeset.t()
   def changeset(dataset, attrs) do
     dataset

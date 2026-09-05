@@ -100,6 +100,8 @@ Datasets are ordered collections of evaluation examples that can be reused by mu
 
 Dataset pages support create, edit, delete, entry management, and JSON containment filters over metadata. Populating a suite copies entries in order, records source provenance, and skips entries already imported from that dataset.
 
+Programmatic dataset workflows use `Aludel.Datasets`; its API covers ordered entry creation, metadata-filtered listing, provenance-preserving suite population, and safe repeat population.
+
 `Aludel.RedTeam` provides seven versioned adversarial cases covering direct and indirect prompt injection, system prompt leakage, sensitive information disclosure, excessive agency, misinformation, and unsafe assistance. The dashboard and library API materialize selected cases into a reusable dataset with deterministic canary assertions, optional rubric judges, and category, severity, provenance, checksum, and deduplication metadata. The dashboard catalog exposes every prompt and risk field before selection. Matching reruns are idempotent; content or judge-configuration drift under the same key fails explicitly. See the [red-team guide](red_team.md).
 
 The dashboard and API can generate product-specific cases through an Aludel provider. Generation validates a strict response schema, bounds calls and output, reports sanitized partial failures and usage, and returns inert checksummed candidates without database writes or execution. Review exposes the complete receipt and leaves every candidate unapproved. A separate import action requires explicit approved candidate IDs, revalidates the review record, and creates the selected entries atomically with rubric judges and provenance.
@@ -117,6 +119,8 @@ Document bytes are kept outside PostgreSQL through `Aludel.Storage`; database ro
 - Google Cloud Storage, including requester-pays buckets
 
 The standalone release selects local, AWS S3, or GCS storage through validated environment settings. AWS can use its runtime identity provider or an explicit access-key pair, and local production requires an explicit persistent path.
+
+Embedded applications use `Aludel.Storage` to create stable keys and read, write, or remove objects through the active or persisted historical backend.
 
 Anthropic can receive PDFs natively. Providers that require images can use the configurable ImageMagick PDF converter.
 
@@ -155,6 +159,8 @@ See the [file-based suite guide](file_suites.html) for manifest examples, the [E
 Native mode renders the prompt and calls the selected provider adapter. Callback mode delegates to a host module implementing `Aludel.Executor`, allowing evaluations to exercise retrieval, tools, routing, retries, or post-processing from the real application.
 
 Both modes use the same run and suite UI. Callback responses require only `output`; tokens, latency, cost, and metadata are optional.
+
+Direct library callers use `Aludel.Execution.execute/1` for the normalized result contract or `Aludel.Execution.execute_with_artifacts/1` when failure artifacts must be retained.
 
 ## Embedding, access, and deployment
 

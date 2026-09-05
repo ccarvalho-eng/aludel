@@ -32,6 +32,12 @@ defmodule Aludel.Storage do
     adapter().put(key, data, content_type, config())
   end
 
+  @doc """
+  Reads a storage key through its owning backend.
+
+  Use `:storage_backend` to select a named historical backend and `:config` to
+  overlay adapter configuration for this operation.
+  """
   @spec get(String.t(), keyword()) :: {:ok, binary()} | {:error, error_reason()}
   def get(key, opts \\ []) do
     with {:ok, storage_adapter} <- adapter_for(opts) do
@@ -39,6 +45,11 @@ defmodule Aludel.Storage do
     end
   end
 
+  @doc """
+  Deletes a storage key through its owning backend.
+
+  Accepts the same `:storage_backend` and `:config` options as `get/2`.
+  """
   @spec delete(String.t(), keyword()) :: :ok | {:error, error_reason()}
   def delete(key, opts \\ []) do
     with {:ok, storage_adapter} <- adapter_for(opts) do
@@ -46,6 +57,13 @@ defmodule Aludel.Storage do
     end
   end
 
+  @doc """
+  Reads the contents associated with a test case document.
+
+  The document's persisted backend name is honored, allowing records created
+  before a backend switch to remain readable. Documents without storage
+  metadata return `{:error, :missing_document_data}`.
+  """
   @spec read(TestCaseDocument.t()) :: {:ok, binary()} | {:error, error_reason()}
   def read(%TestCaseDocument{storage_key: key, storage_backend: backend})
       when is_binary(key) and is_binary(backend) do
@@ -54,24 +72,47 @@ defmodule Aludel.Storage do
 
   def read(%TestCaseDocument{}), do: {:error, :missing_document_data}
 
+  @doc """
+  Returns the currently configured storage adapter.
+
+  The local filesystem adapter is used when no adapter is configured.
+  """
   @spec adapter() :: module()
   def adapter, do: Keyword.get(config(), :adapter, @default_adapter)
 
+  @doc """
+  Returns the resolved application storage configuration.
+  """
   @spec config() :: config()
   def config do
     Config.get()
   end
 
+  @doc """
+  Returns the stable persisted name for a storage adapter.
+  """
   @spec backend_name(module()) :: String.t()
   def backend_name(storage_adapter \\ adapter()) do
     Map.get(@backend_names, storage_adapter, Atom.to_string(storage_adapter))
   end
 
+  @doc """
+  Builds a namespaced storage key for an uploaded document.
+
+  Directory components are removed from the filename and unsupported
+  characters are replaced with underscores.
+  """
   @spec storage_key(Ecto.UUID.t(), String.t()) :: String.t()
   def storage_key(document_id, filename) do
     Path.join(["test_case_documents", document_id, sanitize_filename(filename)])
   end
 
+  @doc """
+  Resolves a persisted backend name to a storage adapter module.
+
+  `nil` selects the active adapter. Unknown names return
+  `{:error, :unknown_storage_backend}` without creating atoms.
+  """
   @spec resolve_backend(String.t() | nil) :: {:ok, module()} | {:error, :unknown_storage_backend}
   def resolve_backend(nil), do: {:ok, adapter()}
 

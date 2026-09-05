@@ -38,11 +38,22 @@ defmodule Aludel.Interfaces.Storage.Adapters.Local do
     end
   end
 
+  @doc """
+  Resolves a storage key beneath the configured local root.
+
+  Raises `ArgumentError` if the expanded key would escape the root directory.
+  """
   @spec path_for(String.t()) :: String.t()
   def path_for(key) do
     path_for(key, Config.get())
   end
 
+  @doc """
+  Resolves a storage key using an explicit adapter configuration.
+
+  The `:root` option defaults to a temporary Aludel directory. Production
+  installations should configure a persistent absolute root.
+  """
   @spec path_for(String.t(), keyword()) :: String.t()
   def path_for(key, config) do
     root =

@@ -31,6 +31,13 @@ defmodule Aludel.Datasets.DatasetEntry do
     timestamps(type: :utc_datetime)
   end
 
+  @doc """
+  Builds a changeset for an ordered dataset entry.
+
+  It validates message and assertion shapes, JSON-encodable metadata and
+  variables, nonnegative position, and the requirement for variables or
+  messages to supply evaluation input.
+  """
   @spec changeset(t(), map()) :: Changeset.t()
   def changeset(entry, attrs) do
     entry
@@ -58,6 +65,12 @@ defmodule Aludel.Datasets.DatasetEntry do
     )
   end
 
+  @doc """
+  Classifies an entry as single-turn or multi-turn from its message count.
+
+  Variable-only and one-message entries are single-turn; two or more messages
+  are multi-turn.
+  """
   @spec conversation_kind(t()) :: :single_turn | :multi_turn
   def conversation_kind(%__MODULE__{messages: [_, _ | _]}) do
     :multi_turn

@@ -44,6 +44,8 @@ Most teams evaluating LLM behavior end up with some combination of scripts, spre
 
 The dashboard and automation interfaces use the same persisted prompts, providers, datasets, suites, runs, quality policies, and evaluation evidence. A workflow can be authored in the UI, committed as a suite manifest, gated from the CLI, and inspected again in the dashboard without maintaining a second test-case format.
 
+For direct integration, start with the [`Aludel.Datasets`](https://hexdocs.pm/aludel/Aludel.Datasets.html), [`Aludel.Storage`](https://hexdocs.pm/aludel/Aludel.Storage.html), [`Aludel.Execution`](https://hexdocs.pm/aludel/Aludel.Execution.html), and [`Aludel.Executor`](https://hexdocs.pm/aludel/Aludel.Executor.html) API references.
+
 ## Feature Catalog
 
 | Area | Features |
