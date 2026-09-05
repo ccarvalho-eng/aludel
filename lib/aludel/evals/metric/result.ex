@@ -17,6 +17,12 @@ defmodule Aludel.Evals.Metric.Result do
           evaluator: Evaluator.t() | nil
         }
 
+  @doc """
+  Converts a normalized result to the string-keyed persisted result format.
+
+  Optional legacy fields are merged last for compatibility with existing
+  assertion consumers.
+  """
   @spec to_map(t(), map()) :: map()
   def to_map(%__MODULE__{} = result, legacy_fields \\ %{}) do
     result_map = %{

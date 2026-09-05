@@ -311,6 +311,7 @@ defmodule Aludel.Evals do
   @doc """
   Gets suite runs for a specific suite.
   """
+  @spec list_suite_runs_for_suite(binary()) :: [SuiteRun.t()]
   def list_suite_runs_for_suite(suite_id) do
     SuiteRun
     |> where([sr], sr.suite_id == ^suite_id)
@@ -322,6 +323,7 @@ defmodule Aludel.Evals do
   Gets suite runs for a specific suite with prompt_version and provider
   preloaded.
   """
+  @spec list_suite_runs_for_suite_with_associations(binary()) :: [SuiteRun.t()]
   def list_suite_runs_for_suite_with_associations(suite_id) do
     SuiteRun
     |> where([sr], sr.suite_id == ^suite_id)

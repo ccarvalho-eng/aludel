@@ -26,11 +26,17 @@ defmodule Aludel.Evals.Metric.Registry do
     {"rubric_judge", RubricJudge}
   ]
 
+  @doc """
+  Lists the registered metric type identifiers accepted by assertions.
+  """
   @spec types() :: [String.t()]
   def types do
     Enum.map(@metrics, &elem(&1, 0))
   end
 
+  @doc """
+  Looks up the metric module registered for a type identifier.
+  """
   @spec fetch(String.t()) :: {:ok, module()} | :error
   def fetch(type) do
     case List.keyfind(@metrics, type, 0) do
@@ -39,6 +45,11 @@ defmodule Aludel.Evals.Metric.Registry do
     end
   end
 
+  @doc """
+  Evaluates a registered assertion against generated output or metric context.
+
+  Returns `:error` when the assertion has no registered `"type"`.
+  """
   @spec evaluate(Context.t() | String.t(), map()) ::
           {:ok, Aludel.Evals.Metric.Result.t()} | :error
   def evaluate(input, %{"type" => type} = assertion) do

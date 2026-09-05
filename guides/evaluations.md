@@ -302,6 +302,25 @@ Use the version delta and signal badges to spot improvements, regressions, unsta
 
 When failed suite evidence exists, choose a provider and generate a failure reflection. Review the proposed template and rationale, then either dismiss it or accept it as a new prompt version.
 
+The same analysis and review workflow is available through the library API:
+
+```elixir
+metrics = Aludel.Prompts.get_evolution_metrics(prompt.id, suite_id: suite.id, days: 30)
+%{frontier: frontier} = Aludel.Prompts.Optimization.analyze(metrics)
+
+{:ok, suggestion} =
+  Aludel.Prompts.Optimization.generate_suggestion(
+    source_version.id,
+    suite.id,
+    provider.id
+  )
+
+{:ok, reviewed_suggestion} =
+  Aludel.Prompts.Optimization.accept_suggestion(suggestion.id, prompt.id)
+```
+
+Use `dismiss_suggestion/2` when the proposed revision should remain in review history without creating a prompt version. Dashboard-level rolling comparisons are available from `Aludel.Stats.Overview.rolling_comparisons/1`; activity, cost, and latency breakdowns live under `Aludel.Stats`.
+
 ## 9. Add a CI quality gate
 
 Store the suite target and sampling configuration in a versioned JSON or YAML manifest, then run it headlessly:

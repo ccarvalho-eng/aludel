@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add repeatable quality gates for high-signal code smells, compile cycles, duplicate code, documentation coverage, dependency advisories, and static analysis
 - Normalize provider pricing at its boundary and replace redundant control flow, generated documentation text, and full-list length checks with idiomatic Elixir
 - Document the dataset, storage, and execution APIs and raise the enforced documentation coverage floor
+- Document evaluation, prompt optimization, and analytics APIs and add missing public typespecs
 
 ## [0.6.1] - 2026-09-04
 

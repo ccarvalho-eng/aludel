@@ -9,6 +9,12 @@ defmodule Aludel.Evals.AssertionParser do
 
   @type parse_mode :: :json | :visual
 
+  @doc """
+  Parses and validates assertion form parameters in JSON or visual-editor form.
+
+  Successful results use the persisted assertion map format accepted by suite
+  execution. Validation failures return a user-facing error message.
+  """
   @spec parse(parse_mode(), map()) :: {:ok, [map()]} | {:error, String.t()}
   def parse(:json, params) do
     case Jason.decode(params["assertions_json"] || "[]") do
@@ -34,6 +40,11 @@ defmodule Aludel.Evals.AssertionParser do
     end
   end
 
+  @doc """
+  Builds assertion maps from incomplete visual-editor parameters for previews.
+
+  Unlike `parse/2`, this does not require every assertion field to be complete.
+  """
   @spec preview_visual(map()) :: {:ok, [map()]} | {:error, String.t()}
   def preview_visual(params) do
     params
@@ -42,6 +53,9 @@ defmodule Aludel.Evals.AssertionParser do
     |> parse_visual_assertions(:preview)
   end
 
+  @doc """
+  Validates persisted assertion maps against the registered metric contracts.
+  """
   @spec validate([map()]) :: {:ok, [map()]} | {:error, String.t()}
   def validate(assertions) when is_list(assertions) do
     assertions
@@ -54,6 +68,9 @@ defmodule Aludel.Evals.AssertionParser do
     end)
   end
 
+  @doc """
+  Converts persisted assertions into parameters for both assertion editors.
+  """
   @spec build_form_params([map()]) :: map()
   def build_form_params(assertions) do
     %{

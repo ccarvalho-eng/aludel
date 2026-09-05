@@ -84,6 +84,9 @@ defmodule Aludel.Stats.Overview do
   ORDER BY periods.days, periods.period
   """
 
+  @doc """
+  Counts all recorded prompt runs and suite runs.
+  """
   @spec total_runs() :: integer()
   def total_runs do
     suite_runs = from(sr in SuiteRun, select: count(sr.id)) |> Shared.repo().one()
@@ -92,6 +95,9 @@ defmodule Aludel.Stats.Overview do
     suite_runs + prompt_runs
   end
 
+  @doc """
+  Returns total passed and failed tests across suite runs.
+  """
   @spec test_totals() :: {integer(), integer()}
   def test_totals do
     query =
@@ -109,17 +115,30 @@ defmodule Aludel.Stats.Overview do
     {passed, failed}
   end
 
+  @doc """
+  Calculates a percentage success rate, returning `0.0` when no tests exist.
+  """
   @spec success_rate(integer(), integer()) :: float()
   def success_rate(passed, failed) do
     total = passed + failed
     if total > 0, do: Float.round(passed / total * 100, 1), else: 0.0
   end
 
+  @doc """
+  Compares the current period with the immediately preceding period.
+
+  The period defaults to seven days. Counts, quality, cost, latency, stability,
+  regression signals, and total-run trend are calculated with bounded period
+  queries.
+  """
   @spec comparison_stats(pos_integer()) :: map()
   def comparison_stats(days \\ 7) do
     comparison_stats(days, current_as_of())
   end
 
+  @doc """
+  Compares adjacent periods ending at the supplied UTC timestamp.
+  """
   @spec comparison_stats(pos_integer(), DateTime.t()) :: map()
   def comparison_stats(days, %DateTime{} = as_of) when is_integer(days) and days > 0 do
     [days]
@@ -127,11 +146,17 @@ defmodule Aludel.Stats.Overview do
     |> Map.fetch!(days)
   end
 
+  @doc """
+  Returns seven-day and thirty-day period comparisons keyed by window length.
+  """
   @spec rolling_comparisons(DateTime.t()) :: %{pos_integer() => map()}
   def rolling_comparisons(as_of \\ current_as_of()) do
     comparisons([7, 30], as_of)
   end
 
+  @doc """
+  Returns average latency across prompt-run results, or zero when unavailable.
+  """
   @spec avg_latency() :: number()
   def avg_latency do
     query =

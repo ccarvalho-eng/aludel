@@ -12,6 +12,12 @@ defmodule Aludel.Evals.DocumentIngestion do
           {:success, String.t()}
           | {:failed, String.t(), String.t()}
 
+  @doc """
+  Validates an uploaded file and attaches it to a test case.
+
+  The return value identifies the client filename on both success and failure,
+  making it suitable for aggregating LiveView upload results.
+  """
   @spec ingest(String.t(), Phoenix.LiveView.UploadEntry.t(), binary()) :: ingest_result()
   def ingest(path, entry, test_case_id) do
     case File.read(path) do

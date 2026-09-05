@@ -16,6 +16,13 @@ defmodule Aludel.Interfaces.LLM.ErrorParser do
       iex> parse_error(%{status: 429})
       {:error, {:rate_limit, nil}}
   """
+  @spec parse_error(term()) ::
+          {:error,
+           {:auth_error, String.t()}
+           | {:rate_limit, nil}
+           | {:invalid_request, String.t()}
+           | {:api_error, integer(), String.t()}
+           | {:network_error, term()}}
   def parse_error(%{status: 401}), do: {:error, {:auth_error, "Invalid API key"}}
 
   def parse_error(%{status: 429}), do: {:error, {:rate_limit, nil}}

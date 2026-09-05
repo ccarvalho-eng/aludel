@@ -9,6 +9,12 @@ defmodule Aludel.Stats.Activity do
   alias Aludel.Runs.Run
   alias Aludel.Stats.Shared
 
+  @doc """
+  Returns daily prompt-run and suite-run counts for the requested date window.
+
+  Missing dates are included with zero counts. Non-positive windows return an
+  empty list.
+  """
   @spec daily_activity(integer()) :: [map()]
   def daily_activity(days \\ 30)
   def daily_activity(days) when days <= 0, do: []
@@ -58,6 +64,9 @@ defmodule Aludel.Stats.Activity do
     end)
   end
 
+  @doc """
+  Lists the most recent prompt and suite runs in one normalized activity feed.
+  """
   @spec list_recent_activity(integer()) :: [map()]
   def list_recent_activity(limit \\ 10) do
     prompt_runs =
@@ -83,6 +92,9 @@ defmodule Aludel.Stats.Activity do
     |> Enum.take(limit)
   end
 
+  @doc """
+  Converts a preloaded suite run to the normalized activity-feed shape.
+  """
   @spec normalize_suite_run(SuiteRun.t()) :: map()
   def normalize_suite_run(suite_run) do
     %{
