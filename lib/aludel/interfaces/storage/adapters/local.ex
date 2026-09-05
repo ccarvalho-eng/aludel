@@ -5,6 +5,8 @@ defmodule Aludel.Interfaces.Storage.Adapters.Local do
 
   @behaviour Aludel.Interfaces.Storage.Behaviour
 
+  alias Aludel.Storage.Config
+
   @default_root Path.join(System.tmp_dir!(), "aludel-storage")
 
   @impl true
@@ -37,7 +39,9 @@ defmodule Aludel.Interfaces.Storage.Adapters.Local do
   end
 
   @spec path_for(String.t()) :: String.t()
-  def path_for(key), do: path_for(key, Aludel.Storage.config())
+  def path_for(key) do
+    path_for(key, Config.get())
+  end
 
   @spec path_for(String.t(), keyword()) :: String.t()
   def path_for(key, config) do
