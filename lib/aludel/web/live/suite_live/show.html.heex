@@ -111,6 +111,51 @@
               options={Enum.map(@providers, &{&1.name, &1.id})}
             />
           </div>
+          <div>
+            <.input
+              field={@run_suite_form[:samples]}
+              type="number"
+              label="Attempts per test case"
+              required
+              disabled={@running}
+              min="1"
+              max="20"
+              step="1"
+            />
+          </div>
+          <div>
+            <.input
+              field={@run_suite_form[:reducer]}
+              type="select"
+              label="Pass rule"
+              required
+              disabled={@running}
+              options={[
+                {"All attempts must pass", "all"},
+                {"Any attempt may pass", "any"},
+                {"Strict majority must pass", "majority"},
+                {"Minimum pass rate", "minimum_pass_rate"}
+              ]}
+            />
+          </div>
+          <div :if={@run_suite_form[:reducer].value == "minimum_pass_rate"}>
+            <.input
+              field={@run_suite_form[:minimum_pass_rate]}
+              type="number"
+              label="Minimum pass rate (%)"
+              required
+              disabled={@running}
+              min="0"
+              max="100"
+              step="0.1"
+            />
+          </div>
+          <div
+            id="sampling-request-count"
+            style="padding: 8px 10px; border-radius: 6px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 12px;"
+          >
+            {sampling_request_summary(@run_suite_form[:samples].value)} per test case. Every attempt is retained; judge assertions can add requests.
+          </div>
           <button
             id="run-suite-btn"
             type="submit"
@@ -1127,6 +1172,38 @@
               <div style="background-color: var(--bg-tertiary); padding: 16px; border-radius: 6px;">
                 <%= for result <- suite_run.results do %>
                   <div style="margin-bottom: 12px; border-radius: 8px; background: var(--bg-secondary); border: 1px solid var(--border); overflow: hidden;">
+                    <details
+                      :if={sampled_result?(result)}
+                      id={"suite-result-sampling-#{suite_run.id}-#{result["test_case_id"]}"}
+                      style="padding: 12px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 6%, transparent);"
+                    >
+                      <summary style="cursor: pointer; color: var(--text-primary); font-size: 12px; font-weight: 600;">
+                        {sampling_pass_summary(result["sampling"])} · {sampling_reducer_label(
+                          result["sampling"]
+                        )} · {sampling_pass_rate(result["sampling"])} pass rate
+                      </summary>
+                      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                        <div
+                          :for={
+                            {attempt, attempt_number} <-
+                              Enum.with_index(result["attempts"], 1)
+                          }
+                          id={"suite-result-attempt-#{suite_run.id}-#{result["test_case_id"]}-#{attempt_number}"}
+                          style="padding: 10px; border-radius: 6px; background: var(--bg-secondary); border: 1px solid var(--border);"
+                        >
+                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+                            <strong style="font-size: 12px;">Attempt {attempt_number}</strong>
+                            <span style={"font-size: 11px; font-weight: 600; color: #{if attempt["passed"], do: "#10b981", else: "#f85149"}"}>
+                              {if attempt["passed"], do: "Passed", else: "Failed"}
+                              <%= if score = format_score(attempt["score"]) do %>
+                                · {score}%
+                              <% end %>
+                            </span>
+                          </div>
+                          <pre style="font-size: 12px; margin: 0; white-space: pre-wrap; color: var(--text-primary); line-height: 1.5;">{attempt["output"]}</pre>
+                        </div>
+                      </div>
+                    </details>
                     <%= if result["assertion_results"] && result["assertion_results"] != [] do %>
                       <div
                         id={"suite-result-assertions-#{suite_run.id}-#{result["test_case_id"]}"}

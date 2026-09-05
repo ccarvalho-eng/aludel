@@ -117,6 +117,8 @@ Aludel stores field-level comparison details, per-test match scores, and suite-r
 
 Nondeterministic model output can make a single response misleading. Run each test case up to 20 times and reduce the ordered attempts into one result:
 
+In the dashboard, open a suite and set **Attempts per test case** plus the **Pass rule** before running it. Choose all attempts, any attempt, a strict majority, or a minimum pass-rate percentage. Each sampled result expands to show the aggregate decision and every ordered attempt.
+
 ```elixir
 {:ok, suite_run} =
   Aludel.Evals.execute_suite(suite, prompt_version, provider,
@@ -126,6 +128,8 @@ Nondeterministic model output can make a single response misleading. Run each te
 ```
 
 Reducers support `:all`, `:any`, strict `:majority`, and a minimum pass rate. Aludel retains every attempt, sums token usage, cost, and latency, and reruns the complete sampling configuration when a result is retried.
+
+Dashboard percentages map to the API's `0.0`–`1.0` minimum pass rate. File-based suites expose the same configuration to `mix aludel.eval`, while the Elixir API and ExUnit accept the sampling options directly.
 
 See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#repeat-nondeterministic-cases) and [repeated sampling wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Repeated-Sampling) for the full result shape and reducer examples.
 
