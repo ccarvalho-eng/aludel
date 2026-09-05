@@ -27,3 +27,10 @@ config :aludel, :llm,
   xai_api_key: System.get_env("XAI_API_KEY"),
   groq_api_key: System.get_env("GROQ_API_KEY"),
   openrouter_api_key: System.get_env("OPENROUTER_API_KEY")
+
+config :aludel, Aludel.Storage,
+  adapter: Aludel.Interfaces.Storage.Adapters.Local,
+  backends: [
+    {Aludel.Interfaces.Storage.Adapters.Local,
+     [root: System.get_env("ALUDEL_STORAGE_PATH") || "tmp/aludel_uploads"]}
+  ]

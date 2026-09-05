@@ -202,15 +202,30 @@ config :aludel, Aludel.Storage,
   backends: [{Aludel.Interfaces.Storage.Adapters.Local, root: "tmp/aludel_uploads"}]
 ```
 
-Standalone production selects AWS S3 or Google Cloud Storage through environment variables:
+Standalone production selects local filesystem, AWS S3, or Google Cloud Storage through environment variables. Local storage requires an explicit persistent path:
+
+```bash
+export ALUDEL_STORAGE_BACKEND=local
+export ALUDEL_STORAGE_PATH=/data/aludel_uploads
+```
+
+AWS storage requires the bucket and region:
 
 ```bash
 export ALUDEL_STORAGE_BACKEND=aws
 export AWS_S3_BUCKET=aludel-uploads
 export AWS_REGION=us-east-1
+```
+
+The standalone release uses the AWS runtime identity provider by default. To use explicit static or temporary credentials, set the access-key pair together and optionally include the session token:
+
+```bash
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
 ```
+
+GCS storage requires a bucket and Google application credentials:
 
 ```bash
 export ALUDEL_STORAGE_BACKEND=gcs
@@ -219,7 +234,9 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 export GCS_USER_PROJECT=optional-requester-pays-project
 ```
 
-Inline `GOOGLE_APPLICATION_CREDENTIALS_JSON` is also supported. Applications can implement `Aludel.Interfaces.Storage.Behaviour` when documents must use another storage system.
+Inline `GOOGLE_APPLICATION_CREDENTIALS_JSON` is also supported. Standalone startup rejects missing backend settings, unsupported backends, relative local paths, and partial explicit AWS credentials. Changing the active backend does not move existing objects, so retain the former backend variables until its documents have been removed or migrated. Every completely configured backend remains available for reads and cleanup of existing document rows.
+
+Applications can implement `Aludel.Interfaces.Storage.Behaviour` when documents must use another storage system.
 
 ## PDF conversion
 

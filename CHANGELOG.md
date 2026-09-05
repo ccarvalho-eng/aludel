@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Add validated local, AWS S3, and GCS storage configuration to the standalone release
+
 ### Security
 - Remove the Docker Compose PostgreSQL host port and require an operator-supplied database password
 - Require nonblank HTTP Basic Authentication credentials before the standalone production endpoint starts

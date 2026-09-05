@@ -41,6 +41,33 @@ if config_env() == :prod do
 
   config :aludel_dash, AludelDash.Repo, repo_config
 
+  storage_config =
+    case AludelDash.StorageConfig.resolve(System.get_env()) do
+      {:ok, config} ->
+        config
+
+      {:error, {:missing, variable}} ->
+        raise "#{variable} must be set to a nonblank value."
+
+      {:error, {:invalid, variable}} ->
+        raise "#{variable} is invalid. Use an absolute path for local storage."
+
+      {:error, {:unsupported_backend, _backend}} ->
+        raise "ALUDEL_STORAGE_BACKEND must be one of: local, aws, gcs."
+
+      {:error, :invalid_aws_credentials} ->
+        raise """
+        AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must both be nonblank when either is set.
+        AWS_SESSION_TOKEN is optional and requires the explicit key pair.
+        Omit all three variables to use the AWS runtime identity provider.
+        """
+
+      {:error, :invalid_environment} ->
+        raise "Unable to read standalone storage configuration."
+    end
+
+  config :aludel, Aludel.Storage, storage_config
+
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
       raise """
