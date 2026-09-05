@@ -54,22 +54,25 @@ export const TagInput = {
   },
 
   renderTags() {
-    this.container.innerHTML = ''
+    this.container.textContent = ''
 
     this.tags.forEach((tag, index) => {
       const chip = document.createElement('span')
       chip.className = 'tag-chip'
-      chip.innerHTML = `
-        ${tag}
-        <button type="button" class="tag-remove" data-index="${index}">×</button>
-      `
+      chip.appendChild(document.createTextNode(tag))
 
-      const removeBtn = chip.querySelector('.tag-remove')
+      const removeBtn = document.createElement('button')
+      removeBtn.type = 'button'
+      removeBtn.className = 'tag-remove'
+      removeBtn.dataset.index = index
+      removeBtn.textContent = '×'
+
       removeBtn.addEventListener('click', (e) => {
         e.preventDefault()
         this.removeTag(index)
       })
 
+      chip.appendChild(removeBtn)
       this.container.appendChild(chip)
     })
   }
