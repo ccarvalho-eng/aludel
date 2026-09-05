@@ -1,5 +1,5 @@
 <div align="left">
-  <h1>Aludel - LLM Eval Workbench</h1>
+  <h1>Aludel - LLM Evaluation and Prompt Testing for Elixir</h1>
 
   <p>
     <a href="https://hex.pm/packages/aludel"><img src="https://img.shields.io/hexpm/v/aludel.svg" alt="Hex.pm"/></a>
@@ -9,7 +9,7 @@
   </p>
 </div>
 
-Aludel gives teams a clean way to evaluate prompt and model behavior without inventing their own tooling first.
+Aludel is a Phoenix-native LLM evaluation workbench for Elixir applications. It combines prompt testing, model comparison, regression suites, red-team datasets, quality gates, and LLM observability in an embeddable dashboard and standalone release.
 
 - Compare the same prompt across OpenAI, Anthropic, Gemini, Ollama, xAI, Groq, and OpenRouter.
 - Inspect output, latency, token usage, and cost side by side.
