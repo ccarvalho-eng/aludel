@@ -74,6 +74,7 @@ defmodule Aludel.Web.Router do
           live "/suites", Aludel.Web.SuiteLive.Index, :index, route_opts
           live "/suites/new", Aludel.Web.SuiteLive.New, :new, route_opts
           get "/suites/runs/:id/export", Aludel.Web.ExportController, :suite_run
+          live "/suites/:id/policy", Aludel.Web.SuiteLive.Policy, :show, route_opts
           live "/suites/:id", Aludel.Web.SuiteLive.Show, :show, route_opts
 
           live "/datasets", Aludel.Web.DatasetLive.Index, :index, route_opts

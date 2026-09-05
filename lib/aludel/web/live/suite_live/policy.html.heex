@@ -1,0 +1,123 @@
+<Layouts.app flash={@flash} current_path={@current_path}>
+  <div class="page-container-wide" style="max-width: 1120px;">
+    <div style="display: flex; justify-content: space-between; align-items: start; gap: 24px; margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--border);">
+      <div>
+        <.link
+          navigate={aludel_path("suites/#{@suite.id}")}
+          style="display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;"
+        >
+          <.icon name="hero-arrow-left" class="size-4" /> Back to suite
+        </.link>
+        <h1 style="margin: 0 0 8px; font-size: 28px;">Quality policy</h1>
+        <p style="margin: 0; color: var(--text-secondary);">
+          Define the release criteria for <strong>{@suite.name}</strong>.
+          Saving creates a new immutable version for future runs.
+        </p>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr); gap: 24px; align-items: start;">
+      <section class="aludel-card">
+        <h2 style="margin: 0 0 8px; font-size: 18px;">Create the next version</h2>
+        <p style="margin: 0 0 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
+          Use decimal rates from 0 to 1, evaluator scores from 0 to 100, and non-negative cost or latency limits.
+        </p>
+
+        <.form
+          for={@policy_form}
+          id="quality-policy-form"
+          phx-change="validate"
+          phx-submit="save"
+        >
+          <.input
+            field={@policy_form[:definition]}
+            type="textarea"
+            label="Policy definition"
+            rows="20"
+            maxlength={100_000}
+            phx-debounce="250"
+            class="json-editor w-full textarea"
+          />
+
+          <div
+            :if={@validation_errors == []}
+            id="policy-validation-valid"
+            style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 7px; color: #059669; background: color-mix(in srgb, #059669 10%, transparent); font-size: 13px;"
+          >
+            Valid policy · {rule_count_label(@rule_count)}
+          </div>
+
+          <div
+            :if={@validation_errors != []}
+            id="policy-validation-errors"
+            style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 7px; color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); font-size: 13px;"
+          >
+            <div style="font-weight: 600; margin-bottom: 6px;">Fix this definition:</div>
+            <ul style="margin: 0; padding-left: 18px;">
+              <li :for={error <- @validation_errors}>{error}</li>
+            </ul>
+          </div>
+
+          <button
+            type="submit"
+            class="button-primary"
+            disabled={@validation_errors != []}
+            phx-disable-with="Creating..."
+            style="width: 100%;"
+          >
+            Create policy version
+          </button>
+        </.form>
+      </section>
+
+      <aside class="aludel-card">
+        <h2 style="margin: 0 0 12px; font-size: 18px;">Rule types</h2>
+        <div style="display: flex; flex-direction: column; gap: 14px; font-size: 13px;">
+          <div>
+            <strong>overall_pass_rate</strong><br /><span class="text-muted">Minimum pass rate across the suite.</span>
+          </div>
+          <div>
+            <strong>metadata_pass_rate</strong><br /><span class="text-muted">Minimum pass rate for cases matching metadata.</span>
+          </div>
+          <div>
+            <strong>evaluator_score</strong><br /><span class="text-muted">Minimum average score for a named metric.</span>
+          </div>
+          <div>
+            <strong>total_cost_usd</strong><br /><span class="text-muted">Maximum total cost for the suite run.</span>
+          </div>
+          <div>
+            <strong>average_latency_ms</strong><br /><span class="text-muted">Maximum average request latency.</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section id="policy-version-history" style="margin-top: 28px;">
+      <h2 style="font-size: 20px; margin-bottom: 14px;">Version history</h2>
+      <div
+        :if={@policies == []}
+        class="aludel-card"
+        style="padding: 28px; text-align: center; color: var(--text-muted);"
+      >
+        No policy versions yet
+      </div>
+      <div :if={@policies != []} style="display: flex; flex-direction: column; gap: 12px;">
+        <details
+          :for={{policy, index} <- Enum.with_index(@policies)}
+          id={"policy-version-#{policy.version}"}
+          class="aludel-card"
+          open={index == 0}
+        >
+          <summary style="cursor: pointer; display: flex; justify-content: space-between; gap: 16px; align-items: center;">
+            <span style="font-weight: 600;">Version {policy.version}</span>
+            <span style="display: inline-flex; align-items: center; gap: 10px; color: var(--text-secondary); font-size: 12px;">
+              <span>{rule_count_label(rule_count(policy.definition))}</span>
+              <span :if={index == 0} style="color: #059669; font-weight: 600;">Active</span>
+            </span>
+          </summary>
+          <pre style="margin: 16px 0 0; padding: 14px; border-radius: 7px; background: var(--bg-tertiary); border: 1px solid var(--border); overflow-x: auto; font-size: 12px; line-height: 1.55;">{format_definition(policy.definition)}</pre>
+        </details>
+      </div>
+    </section>
+  </div>
+</Layouts.app>

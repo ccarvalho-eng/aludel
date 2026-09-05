@@ -49,6 +49,7 @@ defmodule Aludel.Web.SuiteLive.Show do
 
     # Load existing suite runs
     suite_runs = Evals.list_suite_runs_for_suite_with_associations(id)
+    active_policy = Evals.latest_suite_policy(suite)
 
     # Set default selections to first version and first provider
     default_version_id = List.first(prompt.versions) |> then(&if &1, do: &1.id, else: nil)
@@ -69,6 +70,7 @@ defmodule Aludel.Web.SuiteLive.Show do
       |> assign(:judge_templates, JudgeCatalog.all())
       |> assign(:execution_mode_label, Executor.execution_mode_label())
       |> assign(:suite_runs, suite_runs)
+      |> assign(:active_policy, active_policy)
       |> assign(:running, false)
       |> assign(:run_task_monitor_ref, nil)
       |> assign(:selected_version_id, default_version_id)
@@ -894,6 +896,137 @@ defmodule Aludel.Web.SuiteLive.Show do
 
   defp sampling_request_summary(samples) do
     "#{samples} requests"
+  end
+
+  defp policy_status_label(status)
+       when status in ["passed", "failed", "unavailable", "invalid"] do
+    String.capitalize(status)
+  end
+
+  defp policy_status_label(_status) do
+    "Unknown"
+  end
+
+  defp policy_status_color("passed") do
+    "#059669"
+  end
+
+  defp policy_status_color("failed") do
+    "#dc2626"
+  end
+
+  defp policy_status_color("unavailable") do
+    "#d97706"
+  end
+
+  defp policy_status_color(_status) do
+    "var(--text-secondary)"
+  end
+
+  defp policy_rules(%{"rules" => rules}) when is_list(rules) do
+    rules
+  end
+
+  defp policy_rules(_result) do
+    []
+  end
+
+  defp policy_rule_label("overall_pass_rate") do
+    "Overall pass rate"
+  end
+
+  defp policy_rule_label("metadata_pass_rate") do
+    "Metadata pass rate"
+  end
+
+  defp policy_rule_label("evaluator_score") do
+    "Evaluator score"
+  end
+
+  defp policy_rule_label("total_cost_usd") do
+    "Total cost"
+  end
+
+  defp policy_rule_label("average_latency_ms") do
+    "Average latency"
+  end
+
+  defp policy_rule_label(_type) do
+    "Policy rule"
+  end
+
+  defp policy_rule_actual(%{"actual" => nil, "reason" => reason}) when is_binary(reason) do
+    reason
+  end
+
+  defp policy_rule_actual(%{"type" => type, "actual" => actual})
+       when type in ["overall_pass_rate", "metadata_pass_rate"] and is_number(actual) do
+    format_percentage(actual)
+  end
+
+  defp policy_rule_actual(%{"type" => "evaluator_score", "actual" => actual})
+       when is_number(actual) do
+    "#{format_score(actual)} points"
+  end
+
+  defp policy_rule_actual(%{"type" => "total_cost_usd", "actual" => actual})
+       when is_number(actual) do
+    "$#{format_policy_number(actual)}"
+  end
+
+  defp policy_rule_actual(%{"type" => "average_latency_ms", "actual" => actual})
+       when is_number(actual) do
+    "#{format_policy_number(actual)} ms"
+  end
+
+  defp policy_rule_actual(_rule) do
+    "Evidence unavailable"
+  end
+
+  defp policy_rule_requirement(%{"type" => type, "minimum" => minimum})
+       when type in ["overall_pass_rate", "metadata_pass_rate"] and is_number(minimum) do
+    "at least #{format_percentage(minimum)}"
+  end
+
+  defp policy_rule_requirement(%{"type" => "evaluator_score", "minimum" => minimum})
+       when is_number(minimum) do
+    "at least #{format_policy_number(minimum)} points"
+  end
+
+  defp policy_rule_requirement(%{"type" => "total_cost_usd", "maximum" => maximum})
+       when is_number(maximum) do
+    "at most $#{format_policy_number(maximum)}"
+  end
+
+  defp policy_rule_requirement(%{"type" => "average_latency_ms", "maximum" => maximum})
+       when is_number(maximum) do
+    "at most #{format_policy_number(maximum)} ms"
+  end
+
+  defp policy_rule_requirement(_rule) do
+    "Invalid requirement"
+  end
+
+  defp policy_rule_dom_id(id) when is_binary(id) do
+    if Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, id) do
+      id
+    else
+      Base.url_encode64(id, padding: false)
+    end
+  end
+
+  defp policy_rule_dom_id(_id) do
+    "unknown"
+  end
+
+  defp format_policy_number(number) when is_integer(number) do
+    Integer.to_string(number)
+  end
+
+  defp format_policy_number(number) when is_float(number) do
+    number
+    |> Float.round(4)
+    |> to_string()
   end
 
   defp format_percentage(rate) when is_number(rate) do

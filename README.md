@@ -190,6 +190,8 @@ See the [red-team guide](https://hexdocs.pm/aludel/red_team.html), [curated data
 
 Define what a suite must satisfy instead of treating every run as an all-or-nothing test count:
 
+In the dashboard, open a suite and choose **Manage policy**. The editor validates the JSON definition before saving, shows every immutable version, and uses the newest version for future runs. Suite results identify the snapshotted policy version and show the measured status, actual value, and requirement for every rule.
+
 ```elixir
 {:ok, policy} =
   Aludel.Evals.create_suite_policy(suite, %{
@@ -209,7 +211,7 @@ Define what a suite must satisfy instead of treating every run as an all-or-noth
 
 Policies can gate overall pass rate, metadata groups, evaluator scores, total cost, and average latency. Each update creates an immutable suite-local version. A run snapshots the latest version before execution, and retries continue to use that same version.
 
-Policy results report `passed`, `failed`, `invalid`, or `unavailable`; missing evidence never silently passes. `mix aludel.eval` uses the policy outcome as its exit gate and preserves the legacy all-cases-must-pass behavior for suites without a policy.
+Policy authoring and result inspection are available in the dashboard and through the Elixir API. `mix aludel.eval`, ExUnit gates, reporters, and exports consume the same stored policy outcome. Results report `passed`, `failed`, `invalid`, or `unavailable`; missing evidence never silently passes. Suites without a policy preserve the legacy all-cases-must-pass behavior.
 
 See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#enforce-a-versioned-quality-policy) and [quality policies wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Quality-Policies) for every rule and result example.
 

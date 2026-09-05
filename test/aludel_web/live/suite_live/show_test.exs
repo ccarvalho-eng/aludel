@@ -41,6 +41,60 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
     assert has_element?(view, "#run-suite-btn")
   end
 
+  test "links to policy management and renders snapshotted rule evidence", %{conn: conn} do
+    prompt = prompt_fixture_with_version()
+    suite = suite_fixture(%{prompt_id: prompt.id})
+    provider = provider_fixture()
+    version = List.first(prompt.versions)
+
+    definition = %{
+      "schema_version" => 1,
+      "rules" => [%{"id" => "overall", "type" => "overall_pass_rate", "minimum" => 0.9}]
+    }
+
+    assert {:ok, policy} = Evals.create_suite_policy(suite, definition)
+
+    suite_run =
+      suite_run_fixture(%{
+        suite_id: suite.id,
+        prompt_version_id: version.id,
+        provider_id: provider.id,
+        suite_policy_id: policy.id,
+        quality_policy_result: %{
+          "schema_version" => 1,
+          "policy_id" => policy.id,
+          "policy_version" => 1,
+          "status" => "failed",
+          "passed" => false,
+          "rules" => [
+            %{
+              "id" => "overall",
+              "type" => "overall_pass_rate",
+              "minimum" => 0.9,
+              "actual" => 0.75,
+              "sample_count" => 4,
+              "status" => "failed",
+              "passed" => false
+            }
+          ]
+        }
+      })
+
+    {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+    assert has_element?(view, "a[href='/suites/#{suite.id}/policy']", "Manage policy")
+    assert has_element?(view, "#active-quality-policy", "Policy v1 active")
+
+    policy_id = "#suite-run-policy-#{suite_run.id}"
+    assert has_element?(view, policy_id, "Policy v1")
+    assert has_element?(view, policy_id, "Failed")
+
+    rule_id = "#suite-run-policy-rule-#{suite_run.id}-overall"
+    assert has_element?(view, rule_id, "Overall pass rate")
+    assert has_element?(view, rule_id, "75.0%")
+    assert has_element?(view, rule_id, "at least 90.0%")
+  end
+
   describe "dataset population" do
     test "imports multi-turn entries once and renders their provenance", %{conn: conn} do
       suite = suite_fixture()
