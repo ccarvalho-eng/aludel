@@ -105,6 +105,10 @@ Materialization never updates or deletes existing entries.
 
 ## Generated cases
 
+In the dashboard, open a dataset and choose **Generate cases**. Select a provider and categories, describe the target context, and set the request, cases-per-category, output-token, total-token, cost, and timeout bounds. Generation runs asynchronously and never persists or executes candidates.
+
+The review receipt shows status, provider and model, usage, applied limits, safe category failures, generation and target-context checksums, and every candidate's prompt, rationale, classification, recommended judge, ID, and checksum. No candidate is selected by default. Check the exact candidates to approve, choose the destination variable and judge settings, then import the selection atomically. Unimported candidates exist only in the connected page session; leaving or reconnecting requires a new bounded generation request.
+
 Use an existing provider to propose cases for a product, policy, or threat context. Generation returns an in-memory `Aludel.RedTeam.Generation` and does not write to a dataset:
 
 ```elixir
@@ -175,7 +179,7 @@ Before locking the dataset, Aludel revalidates the complete generation checksum,
 
 The complete approved selection is written atomically in generation order. Repeating the same import returns the existing entries in `skipped`. A changed payload, generation receipt, review record, variable, or judge configuration under the same deduplication key returns `{:error, {:deduplication_conflict, key}}` and rolls back every new entry in that call.
 
-Generation and approval/import are Elixir API features. The dashboard can inspect and edit imported entries and populate suites from their dataset, while `mix aludel.eval`, ExUnit, and the evaluation API run the resulting persisted suite. There is no separate generation or import command in the Mix CLI and no generation/import form in the dashboard.
+Generation and approval/import are available in the dashboard and Elixir API. The dashboard can also inspect and edit imported entries and populate suites from their dataset, while `mix aludel.eval`, ExUnit, and the evaluation API run the resulting persisted suite. There is no separate generation or import command in the Mix CLI.
 
 ## Use the entries
 
@@ -186,4 +190,4 @@ The catalog is exposed through the Elixir API. Its output is normal dataset data
 3. Run the suite in the dashboard, with `mix aludel.eval`, through ExUnit, or with `Aludel.Evals.execute_suite/4`.
 4. Apply quality policies and reporters exactly as you would for any other suite.
 
-Catalog browsing and materialization are available in the dashboard and Elixir API. There is no separate red-team CLI command. Generated-case generation, review, and approval/import remain API-only until the separate dashboard review workflow is configured.
+Catalog materialization and generated-case generation, review, and approval/import are available in the dashboard and Elixir API. There is no separate red-team CLI command.

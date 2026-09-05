@@ -18,6 +18,12 @@ defmodule Aludel.Web.DatasetLive.ShowTest do
              "Add red-team cases"
            )
 
+    assert has_element?(
+             view,
+             "a[href='/datasets/#{dataset.id}/red-team/generated']",
+             "Generate cases"
+           )
+
     view
     |> form("#dataset-details-form",
       dataset: %{

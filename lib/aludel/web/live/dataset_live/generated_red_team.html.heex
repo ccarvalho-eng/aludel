@@ -1,0 +1,374 @@
+<Layouts.app flash={@flash} current_path={@current_path}>
+  <div id="generated-red-team-workflow" class="page-container-wide" style="max-width: 1180px;">
+    <div style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--border);">
+      <.link
+        navigate={aludel_path("datasets/#{@dataset.id}")}
+        style="display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;"
+      >
+        <.icon name="hero-arrow-left" class="size-4" /> Back to dataset
+      </.link>
+      <h1 style="margin: 0 0 8px; font-size: 28px;">Generate red-team cases</h1>
+      <p style="margin: 0; max-width: 760px; color: var(--text-secondary); line-height: 1.6;">
+        Generate bounded product-specific candidates for <strong>{@dataset.name}</strong>, inspect
+        the complete review receipt, then explicitly approve the cases to import.
+      </p>
+    </div>
+
+    <section class="aludel-card" aria-labelledby="generation-heading" style="margin-bottom: 20px;">
+      <h2 id="generation-heading" style="margin: 0 0 6px; font-size: 19px;">
+        1. Generate candidates
+      </h2>
+      <p style="margin: 0 0 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.5;">
+        Target context is sent to the selected provider as untrusted data. Generation never writes
+        dataset entries or executes a candidate.
+      </p>
+
+      <.form
+        for={@generation_form}
+        id="red-team-generation-form"
+        phx-change="validate_generation"
+        phx-submit="generate"
+      >
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+          <.input
+            id="generation-provider"
+            field={@generation_form[:provider_id]}
+            type="select"
+            label="Generator provider"
+            prompt="Choose a configured provider"
+            options={Enum.map(@providers, &{&1.name, &1.id})}
+            required
+          />
+          <.input
+            id="generation-cases-per-category"
+            field={@generation_form[:cases_per_category]}
+            type="number"
+            label="Cases per category"
+            min="1"
+            max="5"
+            required
+          />
+          <.input
+            id="generation-max-requests"
+            field={@generation_form[:max_requests]}
+            type="number"
+            label="Request limit"
+            min="1"
+            max="6"
+            required
+          />
+          <.input
+            id="generation-max-output-tokens"
+            field={@generation_form[:max_output_tokens]}
+            type="number"
+            label="Output tokens per request"
+            min="100"
+            max="4000"
+            required
+          />
+          <.input
+            id="generation-max-total-tokens"
+            field={@generation_form[:max_total_tokens]}
+            type="number"
+            label="Observed total-token stop"
+            min="100"
+            max="100000"
+            required
+          />
+          <.input
+            id="generation-max-cost-usd"
+            field={@generation_form[:max_cost_usd]}
+            type="number"
+            label="Observed cost stop (USD)"
+            min="0.01"
+            max="100"
+            step="0.01"
+            required
+          />
+          <.input
+            id="generation-request-timeout-ms"
+            field={@generation_form[:request_timeout_ms]}
+            type="number"
+            label="Timeout per request (ms)"
+            min="100"
+            max="120000"
+            required
+          />
+        </div>
+
+        <fieldset style="margin: 18px 0 0; padding: 0; border: 0;">
+          <legend style="margin-bottom: 9px; font-size: 13px; font-weight: 600;">
+            Risk categories
+          </legend>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px 16px;">
+            <label
+              :for={category <- @categories}
+              style="display: inline-flex; align-items: center; gap: 7px; font-size: 12px;"
+            >
+              <input
+                type="checkbox"
+                name="generation[categories][]"
+                value={category}
+                checked={Atom.to_string(category) in @selected_categories}
+              />
+              {category_label(category)}
+            </label>
+          </div>
+        </fieldset>
+
+        <.input
+          field={@generation_form[:target_context]}
+          type="textarea"
+          label="Target context (optional)"
+          rows="5"
+          maxlength="10000"
+          placeholder="Describe the product, policy, permissions, sensitive data, and expected boundaries."
+        />
+
+        <div
+          :if={@generation_errors != []}
+          id="generation-errors"
+          style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 7px; color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); font-size: 12px;"
+        >
+          <div :for={error <- @generation_errors}>{error}</div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: 14px;">
+          <button
+            type="submit"
+            class="button-primary"
+            disabled={@generating}
+            phx-disable-with="Generating candidates..."
+          >
+            Generate candidates
+          </button>
+          <span
+            :if={@generating}
+            id="generation-progress"
+            style="font-size: 12px; color: var(--text-secondary);"
+          >
+            Generating within the configured request, token, cost, and timeout limits...
+          </span>
+        </div>
+      </.form>
+    </section>
+
+    <div
+      :if={!@generation && @import_errors != []}
+      id="import-errors"
+      style="margin: 0 0 20px; padding: 10px 12px; border-radius: 7px; color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); font-size: 12px;"
+    >
+      <div :for={error <- @import_errors}>{error}</div>
+    </div>
+
+    <section
+      :if={@generation}
+      id="generation-receipt"
+      class="aludel-card"
+      aria-labelledby="receipt-heading"
+      style="margin-bottom: 20px;"
+    >
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px;">
+        <div>
+          <h2 id="receipt-heading" style="margin: 0 0 6px; font-size: 19px;">Review receipt</h2>
+          <p style="margin: 0; color: var(--text-secondary); font-size: 12px;">
+            {@generation.provider.model} · {length(@generation.cases)} candidates · {length(
+              @generation.failures
+            )} failures
+          </p>
+        </div>
+        <span style="align-self: start; padding: 4px 9px; border-radius: 999px; background: var(--bg-tertiary); font-size: 11px; font-weight: 600;">
+          {@generation.status}
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; margin-top: 16px;">
+        <div>
+          <strong>Requests</strong><br />{@generation.usage.requests} / {@generation.limits.max_requests}
+        </div>
+        <div><strong>Input tokens</strong><br />{@generation.usage.input_tokens}</div>
+        <div><strong>Output tokens</strong><br />{@generation.usage.output_tokens}</div>
+        <div>
+          <strong>Total tokens</strong><br />{@generation.usage.total_tokens} / {@generation.limits.max_total_tokens}
+        </div>
+        <div>
+          <strong>Observed cost</strong><br />${format_cost(@generation.usage.cost_usd)} / ${format_cost(
+            @generation.limits.max_cost_usd
+          )}
+        </div>
+        <div>
+          <strong>Generated</strong><br />{Calendar.strftime(
+            @generation.generated_at,
+            "%Y-%m-%d %H:%M UTC"
+          )}
+        </div>
+      </div>
+
+      <details style="margin-top: 14px; font-size: 12px;">
+        <summary style="cursor: pointer; font-weight: 600;">Receipt integrity and limits</summary>
+        <div style="margin-top: 8px; overflow-wrap: anywhere; color: var(--text-secondary); line-height: 1.6;">
+          <div><strong>Generation ID:</strong> {@generation.id}</div>
+          <div>
+            <strong>Provider:</strong> {@generation.provider.type} / {@generation.provider.model} / {@generation.provider.id}
+          </div>
+          <div>
+            <strong>Requested categories:</strong> {Enum.map_join(
+              @generation.requested_categories,
+              ", ",
+              &category_label/1
+            )}
+          </div>
+          <div><strong>Generation checksum:</strong> <code>{@generation.checksum}</code></div>
+          <div>
+            <strong>Target-context checksum:</strong>
+            <code>{@generation.target_context_checksum}</code>
+          </div>
+          <div>
+            <strong>Schema / prompt version:</strong> {@generation.schema_version} / {@generation.prompt_version}
+          </div>
+          <div>
+            <strong>Timeout:</strong> {@generation.limits.request_timeout_ms} ms per request
+          </div>
+          <div>
+            <strong>Other limits:</strong> {@generation.limits.cases_per_category} cases/category, {@generation.limits.max_output_tokens} output tokens/request, {@generation.limits.max_target_context_chars} context characters, {@generation.limits.max_response_bytes} response bytes
+          </div>
+        </div>
+      </details>
+
+      <div :if={@generation.failures != []} id="generation-failures" style="margin-top: 16px;">
+        <h3 style="margin: 0 0 8px; font-size: 14px;">Safe failure summary</h3>
+        <div
+          :for={failure <- @generation.failures}
+          style="margin-top: 7px; padding: 9px 11px; border-radius: 7px; background: color-mix(in srgb, #dc2626 8%, transparent); font-size: 12px;"
+        >
+          <strong>{category_label(failure.category)} · {failure.type}</strong>: {failure.message}
+        </div>
+      </div>
+
+      <p
+        :if={@generation.cases == []}
+        style="margin: 16px 0 0; color: var(--text-secondary); font-size: 12px;"
+      >
+        No valid candidates were returned. Adjust the request or provider and generate a new receipt.
+      </p>
+    </section>
+
+    <.form
+      :if={@generation && @generation.cases != []}
+      for={@import_form}
+      id="generated-red-team-import-form"
+      phx-change="validate_import"
+      phx-submit="import"
+    >
+      <section class="aludel-card" aria-labelledby="approval-heading" style="margin-bottom: 20px;">
+        <h2 id="approval-heading" style="margin: 0 0 6px; font-size: 19px;">
+          2. Review and approve
+        </h2>
+        <p style="margin: 0 0 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.5;">
+          Nothing is pre-approved. Inspect each model-generated prompt and rationale before checking it.
+          Unimported candidates exist only in this connected page session.
+        </p>
+
+        <div id="generated-case-list" style="display: flex; flex-direction: column; gap: 12px;">
+          <article
+            :for={candidate <- @generation.cases}
+            id={"generated-case-#{candidate.id}"}
+            data-generated-case
+            style="padding: 15px; border: 1px solid var(--border); border-radius: 8px;"
+          >
+            <div style="display: flex; align-items: start; gap: 12px;">
+              <input
+                type="checkbox"
+                name="import[approved_case_ids][]"
+                value={candidate.id}
+                checked={candidate.id in @approved_case_ids}
+                aria-label={"Approve #{candidate.name}"}
+                style="margin-top: 4px; width: 16px; height: 16px;"
+              />
+              <div style="min-width: 0; flex: 1;">
+                <h3 style="margin: 0 0 7px; font-size: 16px;">{candidate.name}</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-secondary); font-size: 11px;">
+                  <span>{category_label(candidate.category)}</span>
+                  <span>· {candidate.severity}</span>
+                  <span>· {candidate.technique}</span>
+                  <span>· judge: {candidate.recommended_judge}</span>
+                </div>
+                <p style="margin: 10px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5;">
+                  {candidate.rationale}
+                </p>
+                <pre style="margin: 0; padding: 12px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5;">{candidate.prompt}</pre>
+                <div style="margin-top: 8px; color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere;">
+                  <strong>Case ID:</strong> {candidate.id} ·
+                  <strong>Checksum:</strong> {candidate.checksum}
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="aludel-card" aria-labelledby="import-heading">
+        <h2 id="import-heading" style="margin: 0 0 6px; font-size: 19px;">
+          3. Import approved cases
+        </h2>
+        <p style="margin: 0 0 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.5;">
+          The complete approved selection is revalidated and written atomically in generation order.
+        </p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+          <.input
+            field={@import_form[:variable]}
+            type="text"
+            label="Prompt variable"
+            required
+            maxlength="200"
+          />
+          <.input
+            field={@import_form[:judge_provider_id]}
+            type="select"
+            label="Judge provider"
+            prompt="Choose a configured provider"
+            options={Enum.map(@providers, &{&1.name, &1.id})}
+            required
+          />
+          <.input
+            field={@import_form[:judge_threshold]}
+            type="number"
+            label="Judge threshold"
+            min="0"
+            max="100"
+            step="0.1"
+            required
+          />
+        </div>
+
+        <div
+          :if={@import_errors != []}
+          id="import-errors"
+          style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 7px; color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); font-size: 12px;"
+        >
+          <div :for={error <- @import_errors}>{error}</div>
+        </div>
+
+        <div
+          :if={@import_result}
+          id="import-result"
+          style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 7px; color: #059669; background: color-mix(in srgb, #059669 10%, transparent); font-size: 12px;"
+        >
+          {@import_result.created} created · {@import_result.skipped} already present
+        </div>
+
+        <button
+          type="submit"
+          class="button-primary"
+          phx-disable-with="Importing approved cases..."
+        >
+          Import approved cases
+        </button>
+        <p style="margin: 10px 0 0; color: var(--text-muted); font-size: 11px;">
+          Exact reruns are skipped. Conflicts never overwrite existing entries.
+        </p>
+      </section>
+    </.form>
+  </div>
+</Layouts.app>
