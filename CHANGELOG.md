@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalize provider pricing at its boundary and replace redundant control flow, generated documentation text, and full-list length checks with idiomatic Elixir
 - Document the dataset, storage, and execution APIs and raise the enforced documentation coverage floor
 - Document evaluation, prompt optimization, and analytics APIs and add missing public typespecs
+- Improve Hex and GitHub discovery metadata for LLM evaluation, prompt testing, and model comparison
 
 ## [0.6.1] - 2026-09-04
 

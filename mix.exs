@@ -25,7 +25,8 @@ defmodule Aludel.MixProject do
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
       ],
       package: package(),
-      description: "Aludel - LLM Eval Workbench for Phoenix applications",
+      description:
+        "Phoenix-native LLM evaluation, prompt testing, model comparison, red teaming, and observability for Elixir applications",
       source_url: "https://github.com/ccarvalho-eng/aludel",
       homepage_url: "https://github.com/ccarvalho-eng/aludel",
       docs: [
@@ -87,7 +88,9 @@ defmodule Aludel.MixProject do
       files:
         ~w(lib priv/repo priv/static guides .formatter.exs mix.exs README* CHANGELOG* LICENSE*),
       links: %{
-        "GitHub" => "https://github.com/ccarvalho-eng/aludel"
+        "Documentation" => "https://hexdocs.pm/aludel",
+        "GitHub" => "https://github.com/ccarvalho-eng/aludel",
+        "Wiki" => "https://github.com/ccarvalho-eng/aludel/wiki"
       }
     ]
   end
