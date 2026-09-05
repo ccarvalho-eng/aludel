@@ -7,6 +7,7 @@ defmodule Aludel.StorageTest do
   alias Aludel.Interfaces.Storage.Adapters.Local
   alias Aludel.Interfaces.StorageMock
   alias Aludel.Storage
+  alias Aludel.Storage.Config
 
   setup :set_mox_from_context
   setup :verify_on_exit!
@@ -91,6 +92,27 @@ defmodule Aludel.StorageTest do
     end
   end
 
+  test "storage configuration resolves nested system values" do
+    variable = "ALUDEL_STORAGE_TEST_VALUE"
+    original_value = System.get_env(variable)
+    original_config = Application.get_env(:aludel, Aludel.Storage, [])
+
+    System.put_env(variable, "resolved")
+
+    Application.put_env(:aludel, Aludel.Storage,
+      root: {:system, variable},
+      backends: %{Local => [bucket: {:system, variable}]}
+    )
+
+    on_exit(fn ->
+      restore_system_value(variable, original_value)
+      Application.put_env(:aludel, Aludel.Storage, original_config)
+    end)
+
+    assert Config.get() == [root: "resolved", backends: %{Local => [bucket: "resolved"]}]
+    assert Storage.config() == Config.get()
+  end
+
   defp configure_storage(config) do
     original_config = Application.get_env(:aludel, Aludel.Storage, [])
     Application.put_env(:aludel, Aludel.Storage, config)
@@ -98,5 +120,13 @@ defmodule Aludel.StorageTest do
     on_exit(fn ->
       Application.put_env(:aludel, Aludel.Storage, original_config)
     end)
+  end
+
+  defp restore_system_value(variable, nil) do
+    System.delete_env(variable)
+  end
+
+  defp restore_system_value(variable, value) do
+    System.put_env(variable, value)
   end
 end

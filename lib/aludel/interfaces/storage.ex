@@ -9,6 +9,7 @@ defmodule Aludel.Storage do
   alias Aludel.Interfaces.Storage.Adapters.AWS
   alias Aludel.Interfaces.Storage.Adapters.GCS
   alias Aludel.Interfaces.Storage.Adapters.Local
+  alias Aludel.Storage.Config
 
   @type config :: keyword()
   @type error_reason :: term()
@@ -58,9 +59,7 @@ defmodule Aludel.Storage do
 
   @spec config() :: config()
   def config do
-    :aludel
-    |> Application.get_env(__MODULE__, [])
-    |> resolve_system_values()
+    Config.get()
   end
 
   @spec backend_name(module()) :: String.t()
@@ -128,19 +127,6 @@ defmodule Aludel.Storage do
       _other -> nil
     end)
   end
-
-  defp resolve_system_values(config) when is_list(config) do
-    Enum.map(config, fn
-      {key, {:system, env_var}} -> {key, System.get_env(env_var)}
-      {key, value} -> {key, resolve_system_values(value)}
-    end)
-  end
-
-  defp resolve_system_values(config) when is_map(config) do
-    Map.new(config, fn {key, value} -> {key, resolve_system_values(value)} end)
-  end
-
-  defp resolve_system_values(value), do: value
 
   defp resolve_dynamic_backend(backend) do
     module = String.to_existing_atom(backend)
