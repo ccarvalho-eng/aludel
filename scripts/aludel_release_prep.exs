@@ -5,7 +5,7 @@ defmodule Aludel.ReleasePrepScript do
   def main(args) do
     {opts, args, invalid} =
       OptionParser.parse(args,
-        strict: [date: :string, from_tag: :string, notes_file: :string],
+        strict: [date: :string, from_tag: :string, notes_file: :string, notes_only: :boolean],
         aliases: [d: :date]
       )
 
@@ -16,14 +16,22 @@ defmodule Aludel.ReleasePrepScript do
     version = single_version!(args)
     validate_version!(version)
 
+    if opts[:notes_only] do
+      write_existing_notes!(version, opts[:notes_file])
+    else
+      prepare_release!(version, opts)
+    end
+  end
+
+  defp prepare_release!(version, opts) do
     date = Keyword.get(opts, :date, Date.to_iso8601(Date.utc_today()))
     from_tag = Keyword.get(opts, :from_tag) || previous_version_tag!(version)
-    commits = commits_since!(from_tag)
+    commits_since!(from_tag)
+    notes = unreleased_notes!()
 
     update_mix_version!(version)
     update_install_snippets!(version)
 
-    notes = changelog_notes(commits)
     update_changelog!(version, date, notes)
     write_notes_file(opts[:notes_file], notes)
 
@@ -31,6 +39,13 @@ defmodule Aludel.ReleasePrepScript do
     Prepared Aludel #{version} release metadata.
     Changelog source: #{from_tag}..HEAD
     """)
+  end
+
+  defp write_existing_notes!(version, notes_file) do
+    notes = versioned_notes!(version)
+    write_notes_file(notes_file, notes)
+
+    IO.puts("Prepared release notes for Aludel #{version}.")
   end
 
   defp single_version!([version]) do
@@ -116,17 +131,36 @@ defmodule Aludel.ReleasePrepScript do
     end)
   end
 
-  defp changelog_notes(commits) do
-    commit_lines =
-      Enum.map_join(commits, "\n", fn
-        {"", subject} -> "- #{subject}"
-        {sha, subject} -> "- `#{sha}` #{subject}"
-      end)
+  defp unreleased_notes! do
+    body = File.read!("CHANGELOG.md")
 
-    """
-    ### Changed
-    #{commit_lines}
-    """
+    case Regex.run(~r/^## Unreleased[^\n]*\n(?<notes>.*?)(?=^## \[)/ms, body, capture: ["notes"]) do
+      [notes] -> normalize_notes!(notes, "Unreleased section has no entries")
+      nil -> fail!("Could not find an Unreleased section before the latest release")
+    end
+  end
+
+  defp versioned_notes!(version) do
+    body = File.read!("CHANGELOG.md")
+    escaped_version = Regex.escape(version)
+
+    pattern =
+      Regex.compile!(
+        "^## \\[#{escaped_version}\\][^\\n]*\\n(?<notes>.*?)(?=^## \\[|\\z)",
+        "ms"
+      )
+
+    case Regex.run(pattern, body, capture: ["notes"]) do
+      [notes] -> normalize_notes!(notes, "Release #{version} has no changelog entries")
+      nil -> fail!("Could not find CHANGELOG.md release #{version}")
+    end
+  end
+
+  defp normalize_notes!(notes, error_message) do
+    case String.trim(notes) do
+      "" -> fail!(error_message)
+      normalized -> normalized <> "\n"
+    end
   end
 
   defp update_changelog!(version, date, notes) do
@@ -136,13 +170,20 @@ defmodule Aludel.ReleasePrepScript do
       end
 
       section = """
+      ## Unreleased
+
       ## [#{version}] - #{date}
 
       #{String.trim_trailing(notes)}
 
       """
 
-      replace_once!(body, ~r/\n## \[/, "\n#{section}## [", "CHANGELOG.md release insertion point")
+      replace_once!(
+        body,
+        ~r/^## Unreleased[^\n]*\n.*?(?=^## \[)/ms,
+        section,
+        "CHANGELOG.md Unreleased section"
+      )
     end)
   end
 
@@ -165,7 +206,7 @@ defmodule Aludel.ReleasePrepScript do
 
   defp replace_once!(body, pattern, replacement, label) do
     if Regex.match?(pattern, body) do
-      Regex.replace(pattern, body, replacement, global: false)
+      Regex.replace(pattern, body, fn _match -> replacement end, global: false)
     else
       fail!("Could not find #{label}")
     end

@@ -3,7 +3,7 @@ defmodule Aludel.ReleasePrepScriptTest do
 
   @script Path.expand("../../scripts/aludel_release_prep.exs", __DIR__)
 
-  test "prepares package metadata and release notes from commits since the previous tag" do
+  test "moves curated unreleased notes into the versioned release" do
     repo = temporary_repo!()
     notes_file = Path.join(repo, "release-notes.md")
 
@@ -31,8 +31,82 @@ defmodule Aludel.ReleasePrepScriptTest do
 
     changelog = File.read!(Path.join(repo, "CHANGELOG.md"))
     assert changelog =~ "## [0.4.2] - 2026-08-15"
-    assert changelog =~ "- `#{commit}` feat: add release automation"
-    assert File.read!(notes_file) =~ "- `#{commit}` feat: add release automation"
+    assert changelog =~ "## Unreleased\n\n## [0.4.2]"
+    assert changelog =~ "### Added\n- Add reliable release automation"
+    assert changelog =~ "### Security\n- Validate release state before publication"
+
+    notes = File.read!(notes_file)
+    assert notes =~ "### Added\n- Add reliable release automation"
+    assert notes =~ "### Security\n- Validate release state before publication"
+    refute notes =~ commit
+    refute notes =~ "feat: add release automation"
+  end
+
+  test "extracts notes from an existing version for interrupted release recovery" do
+    repo = temporary_repo!()
+    notes_file = Path.join(repo, "release-notes.md")
+
+    File.write!(
+      Path.join(repo, "CHANGELOG.md"),
+      """
+      # Changelog
+
+      ## Unreleased
+
+      ## [0.4.2] - 2026-08-15
+
+      ### Added
+      - Add reliable release automation
+
+      ## [0.4.1] - 2026-06-15
+
+      ### Changed
+      - Previous release
+      """
+    )
+
+    {output, status} =
+      System.cmd(
+        "elixir",
+        [@script, "0.4.2", "--notes-only", "--notes-file", notes_file],
+        cd: repo,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    assert File.read!(notes_file) == "### Added\n- Add reliable release automation\n"
+  end
+
+  test "rejects a release with no curated unreleased entries" do
+    repo = temporary_repo!()
+
+    write_release_files!(repo)
+    changelog_path = Path.join(repo, "CHANGELOG.md")
+
+    changelog_path
+    |> File.read!()
+    |> String.replace(
+      "## Unreleased\n\n### Added\n- Add reliable release automation\n\n### Security\n- Validate release state before publication\n",
+      "## Unreleased\n"
+    )
+    |> then(&File.write!(changelog_path, &1))
+
+    run_git!(repo, ["add", "."])
+    run_git!(repo, ["commit", "-m", "chore: release 0.4.1"])
+    run_git!(repo, ["tag", "v0.4.1"])
+
+    File.write!(Path.join(repo, "feature.txt"), "new feature\n")
+    run_git!(repo, ["add", "feature.txt"])
+    run_git!(repo, ["commit", "-m", "feat: add release automation"])
+
+    {output, status} =
+      System.cmd("elixir", [@script, "0.4.2", "--date", "2026-08-15"],
+        cd: repo,
+        stderr_to_stdout: true
+      )
+
+    assert status == 1
+    assert output =~ "Unreleased section has no entries"
   end
 
   test "rejects a version with a leading v" do
@@ -73,6 +147,14 @@ defmodule Aludel.ReleasePrepScriptTest do
       Path.join(repo, "CHANGELOG.md"),
       """
       # Changelog
+
+      ## Unreleased
+
+      ### Added
+      - Add reliable release automation
+
+      ### Security
+      - Validate release state before publication
 
       ## [0.4.1] - 2026-06-15
 

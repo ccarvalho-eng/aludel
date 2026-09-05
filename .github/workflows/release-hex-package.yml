@@ -16,7 +16,7 @@ env:
   OTP_VERSION: "28.4.1"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.version }}
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
@@ -85,7 +85,7 @@ jobs:
           fi
 
           tag_exists=false
-          if git rev-parse "v${RELEASE_VERSION}" >/dev/null 2>&1; then
+          if git show-ref --verify --quiet "refs/tags/v${RELEASE_VERSION}"; then
             tag_exists=true
           fi
 
@@ -94,26 +94,56 @@ jobs:
             release_exists=true
           fi
 
-          if [ "$tag_exists" = "true" ] || [ "$release_exists" = "true" ]; then
-            if [ "$tag_exists" = "true" ] && [ "$release_exists" = "true" ]; then
-              echo "existing_release=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
+          hex_status="$(
+            curl --silent --show-error --location --retry 3 --retry-all-errors \
+              --user-agent "aludel-release-workflow/${GITHUB_RUN_ID}" \
+              --output /dev/null --write-out "%{http_code}" \
+              "https://hex.pm/api/packages/aludel/releases/${RELEASE_VERSION}"
+          )"
 
-            echo "::error::release state is partial: tag_exists=${tag_exists}, release_exists=${release_exists}"
+          case "$hex_status" in
+            200) hex_exists=true ;;
+            404) hex_exists=false ;;
+            *)
+              echo "::error::Hex.pm release lookup returned HTTP ${hex_status}"
+              exit 1
+              ;;
+          esac
+
+          if [ "$release_exists" = "true" ] && [ "$tag_exists" != "true" ]; then
+            echo "::error::GitHub release exists without its repository tag"
             exit 1
           fi
 
-          echo "existing_release=false" >> "$GITHUB_OUTPUT"
+          if [ "$hex_exists" = "true" ] && [ "$tag_exists" != "true" ]; then
+            echo "::error::Hex.pm release exists without its repository tag"
+            exit 1
+          fi
+
+          if [ "$tag_exists" = "true" ]; then
+            if ! git merge-base --is-ancestor "v${RELEASE_VERSION}" main; then
+              echo "::error::release tag is not contained in main"
+              exit 1
+            fi
+
+            new_release=false
+          else
+            new_release=true
+          fi
+
+          echo "tag_exists=${tag_exists}" >> "$GITHUB_OUTPUT"
+          echo "release_exists=${release_exists}" >> "$GITHUB_OUTPUT"
+          echo "hex_exists=${hex_exists}" >> "$GITHUB_OUTPUT"
+          echo "new_release=${new_release}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout existing release tag
-        if: ${{ steps.release_state.outputs.existing_release == 'true' }}
+        if: ${{ steps.release_state.outputs.tag_exists == 'true' }}
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: git checkout "v${RELEASE_VERSION}"
 
       - name: Prepare release metadata
-        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
+        if: ${{ steps.release_state.outputs.new_release == 'true' }}
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -121,7 +151,15 @@ jobs:
 
           elixir scripts/aludel_release_prep.exs "$RELEASE_VERSION" \
             --notes-file /tmp/aludel-release-notes.md
-          mix format
+          mix format mix.exs
+
+      - name: Recover release notes
+        if: ${{ steps.release_state.outputs.tag_exists == 'true' && steps.release_state.outputs.release_exists != 'true' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          elixir scripts/aludel_release_prep.exs "$RELEASE_VERSION" \
+            --notes-only --notes-file /tmp/aludel-release-notes.md
 
       - name: Install dependencies
         run: mix deps.get
@@ -130,7 +168,6 @@ jobs:
         env:
           HEX_API_KEY: ${{ secrets.HEX_SECRET_KEY }}
           RELEASE_VERSION: ${{ inputs.version }}
-          EXISTING_RELEASE: ${{ steps.release_state.outputs.existing_release }}
         run: |
           set -euo pipefail
 
@@ -148,17 +185,17 @@ jobs:
             exit 1
           fi
 
-          if [ "$EXISTING_RELEASE" != "true" ]; then
-            MIX_ENV=test mix ecto.create
-            MIX_ENV=test mix ecto.migrate
-            mix precommit
-          fi
+          MIX_ENV=test mix ecto.create
+          MIX_ENV=test mix ecto.migrate
+          mix precommit
+          mix deps.audit
+          mix hex.audit
 
           mix hex.publish --dry-run --yes
           mix hex.build --unpack --output /tmp/aludel-hex-package
 
       - name: Commit release metadata
-        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
+        if: ${{ steps.release_state.outputs.new_release == 'true' }}
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -178,7 +215,7 @@ jobs:
             -m "Update Aludel package metadata and changelog for ${RELEASE_VERSION}."
 
       - name: Tag and push release
-        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
+        if: ${{ steps.release_state.outputs.new_release == 'true' }}
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -188,7 +225,7 @@ jobs:
           git push --atomic origin HEAD:main "v${RELEASE_VERSION}"
 
       - name: Create GitHub release
-        if: ${{ steps.release_state.outputs.existing_release != 'true' }}
+        if: ${{ steps.release_state.outputs.release_exists != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
@@ -199,9 +236,10 @@ jobs:
             --title "v${RELEASE_VERSION}" \
             --notes-file /tmp/aludel-release-notes.md
 
-      - name: Publish package
+      - name: Publish package or recover documentation
         env:
           HEX_API_KEY: ${{ secrets.HEX_SECRET_KEY }}
+          HEX_RELEASE_EXISTS: ${{ steps.release_state.outputs.hex_exists }}
         run: |
           set -euo pipefail
 
@@ -210,4 +248,8 @@ jobs:
             exit 1
           fi
 
-          mix hex.publish --yes
+          if [ "$HEX_RELEASE_EXISTS" = "true" ]; then
+            mix hex.publish docs --yes
+          else
+            mix hex.publish --yes
+          fi
