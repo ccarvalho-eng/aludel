@@ -268,13 +268,9 @@ For standalone production outside Compose, configure `DATABASE_URL` instead. Exi
 
 ### Upgrading an existing Compose database
 
-PostgreSQL applies `POSTGRES_PASSWORD` only when it creates a new data volume. Before switching an existing Aludel Compose deployment to this version, rotate the existing `postgres` role password while the old stack is running:
+PostgreSQL applies `POSTGRES_PASSWORD` only when it creates a new data volume. Existing deployments must rotate the current database role password through their established database-administration and secret-management process before switching to this version, then set the same value as `POSTGRES_PASSWORD` in the new `.env`.
 
-```bash
-docker compose exec db psql -U postgres -d aludel_dash
-```
-
-At the `psql` prompt, run `\password postgres`, enter a newly generated password twice, then run `\q`. Set that same value as `POSTGRES_PASSWORD` in the new `.env` before starting the updated stack. This interactive flow keeps the password out of shell history. Do not delete the `pgdata` volume during the upgrade because it contains the existing Aludel data.
+Back up the database before the upgrade. Do not delete the `pgdata` volume because it contains the existing Aludel data.
 
 ## Demo catalog
 
