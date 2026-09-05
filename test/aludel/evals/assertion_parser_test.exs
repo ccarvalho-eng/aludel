@@ -261,6 +261,27 @@ defmodule Aludel.Evals.AssertionParserTest do
       assert message =~ "contains type requires a non-blank 'value' field"
     end
 
+    test "rejects oversized regular expression patterns" do
+      params = %{
+        "assertions_json" =>
+          Jason.encode!([
+            %{"type" => "regex", "value" => String.duplicate("a", 4_097)}
+          ])
+      }
+
+      assert {:error, message} = AssertionParser.parse(:json, params)
+      assert message == "Assertion at index 1: regex pattern cannot exceed 4096 bytes"
+    end
+
+    test "rejects invalid regular expression patterns" do
+      params = %{
+        "assertions_json" => ~s([{"type":"regex","value":"["}])
+      }
+
+      assert {:error, message} = AssertionParser.parse(:json, params)
+      assert message == "Assertion at index 1: regex pattern is invalid"
+    end
+
     test "rejects json_field assertions missing expected keys" do
       params = %{
         "assertions_json" => ~s([{"type":"json_field"}])

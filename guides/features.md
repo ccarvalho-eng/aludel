@@ -78,7 +78,7 @@ The suite UI supports:
 - retrying one test result without rerunning the entire suite
 - copy actions, raw JSON exports, and previewable console, JSON v2, JUnit XML, and GitHub annotation reports
 
-Built-in metrics are `contains`, `not_contains`, `regex`, `exact_match`, `json_field`, `json_deep_compare`, and `rubric_judge`. See the [Evaluation Guide](evaluations.md) for examples and programmatic policy configuration.
+Built-in metrics are `contains`, `not_contains`, resource-bounded `regex`, `exact_match`, `json_field`, `json_deep_compare`, and `rubric_judge`. Regex patterns are validated before persistence and bounded again during execution, including for direct API and ExUnit calls. See the [Evaluation Guide](evaluations.md) for examples and programmatic policy configuration.
 
 The visual assertion editor configures either a built-in judge template or a custom rubric, a separate judge provider, a 0–100 pass threshold, an optional reference answer, and optional grounding context. The raw JSON editor exposes the same assertion contract. Once saved, judge assertions run through the dashboard, Mix CLI, ExUnit, file-based suites, and the Elixir API.
 

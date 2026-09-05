@@ -5,6 +5,7 @@ defmodule Aludel.Evals.AssertionParser do
 
   alias Aludel.Evals.JudgeCatalog
   alias Aludel.Evals.Metric.Registry
+  alias Aludel.Evals.RegexMatcher
 
   @type parse_mode :: :json | :visual
 
@@ -243,6 +244,9 @@ defmodule Aludel.Evals.AssertionParser do
       type == "rubric_judge" ->
         validate_rubric_judge_assertion(assertion, idx)
 
+      type == "regex" ->
+        validate_regex_assertion(assertion, idx)
+
       true ->
         validate_string_assertion(assertion, idx, type)
     end
@@ -276,6 +280,21 @@ defmodule Aludel.Evals.AssertionParser do
 
       true ->
         :ok
+    end
+  end
+
+  defp validate_regex_assertion(assertion, idx) do
+    with :ok <- validate_string_assertion(assertion, idx, "regex") do
+      case RegexMatcher.validate_pattern(assertion["value"]) do
+        :ok ->
+          :ok
+
+        {:error, :pattern_too_large} ->
+          {:error, "Assertion at index #{idx}: regex pattern cannot exceed 4096 bytes"}
+
+        {:error, :invalid_pattern} ->
+          {:error, "Assertion at index #{idx}: regex pattern is invalid"}
+      end
     end
   end
 

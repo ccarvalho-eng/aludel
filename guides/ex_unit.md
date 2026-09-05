@@ -27,7 +27,7 @@ end
 
 The helper returns the normalized assertion result when it passes. A failed, invalid, unsupported, or unavailable evaluator raises `ExUnit.AssertionError`.
 
-All built-in metrics are available: `contains`, `not_contains`, `regex`, `exact_match`, `json_field`, `json_deep_compare`, and `rubric_judge`. Model-based judge assertions use their configured Aludel provider and retain separate evaluator evidence.
+All built-in metrics are available: `contains`, `not_contains`, resource-bounded `regex`, `exact_match`, `json_field`, `json_deep_compare`, and `rubric_judge`. Regex limit failures use the same assertion failure path and do not expose generated output in evaluator error details. Model-based judge assertions use their configured Aludel provider and retain separate evaluator evidence.
 
 ## Assert several metrics
 
