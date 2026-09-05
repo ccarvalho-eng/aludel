@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Security
+- Remove the Docker Compose PostgreSQL host port and require an operator-supplied database password
 - Require nonblank HTTP Basic Authentication credentials before the standalone production endpoint starts
 - Compare standalone Basic Authentication credentials with Plug's constant-time verifier
 - Enforce resolver read-only decisions server-side for all dashboard mutation and model-request events

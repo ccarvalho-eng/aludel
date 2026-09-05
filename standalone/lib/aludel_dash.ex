@@ -58,6 +58,65 @@ defmodule AludelDash.BasicAuth do
   end
 end
 
+defmodule AludelDash.DatabaseConfig do
+  @moduledoc false
+
+  @component_variables [
+    "DATABASE_HOST",
+    "DATABASE_USERNAME",
+    "DATABASE_PASSWORD",
+    "DATABASE_NAME"
+  ]
+
+  @type result :: {:ok, keyword(String.t())} | {:error, :invalid_database_config}
+
+  @spec resolve(%{optional(String.t()) => term()}) :: result()
+  def resolve(environment) when is_map(environment) do
+    if component_configuration?(environment) do
+      resolve_components(environment)
+    else
+      resolve_url(environment)
+    end
+  end
+
+  def resolve(_environment) do
+    {:error, :invalid_database_config}
+  end
+
+  defp component_configuration?(environment) do
+    Enum.any?(@component_variables, &Map.has_key?(environment, &1))
+  end
+
+  defp resolve_components(environment) do
+    with {:ok, hostname} <- fetch_present(environment, "DATABASE_HOST"),
+         {:ok, username} <- fetch_present(environment, "DATABASE_USERNAME"),
+         {:ok, password} <- fetch_present(environment, "DATABASE_PASSWORD"),
+         {:ok, database} <- fetch_present(environment, "DATABASE_NAME") do
+      {:ok, hostname: hostname, username: username, password: password, database: database}
+    end
+  end
+
+  defp resolve_url(environment) do
+    with {:ok, url} <- fetch_present(environment, "DATABASE_URL") do
+      {:ok, url: url}
+    end
+  end
+
+  defp fetch_present(environment, variable) do
+    case Map.get(environment, variable) do
+      value when is_binary(value) ->
+        if String.trim(value) == "" do
+          {:error, :invalid_database_config}
+        else
+          {:ok, value}
+        end
+
+      _missing_or_invalid ->
+        {:error, :invalid_database_config}
+    end
+  end
+end
+
 defmodule AludelDash.Resolver do
   @behaviour Aludel.Web.Resolver
 

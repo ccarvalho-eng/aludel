@@ -39,6 +39,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Validate Docker Compose security defaults
+        run: |
+          cp .env.example .env
+          if docker compose config --quiet 2>/dev/null; then
+            echo "Docker Compose accepted a blank database password"
+            exit 1
+          fi
+          POSTGRES_PASSWORD=ci-only-password docker compose config --quiet
+
       - name: Setup Elixir
         uses: ./.github/actions/setup-elixir
         with:

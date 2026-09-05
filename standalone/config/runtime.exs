@@ -20,15 +20,26 @@ if config_env() == :prod do
         """
     end
 
-  database_url =
-    System.get_env("DATABASE_URL") ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      """
+  database_config =
+    case AludelDash.DatabaseConfig.resolve(System.get_env()) do
+      {:ok, config} ->
+        config
 
-  config :aludel_dash, AludelDash.Repo,
-    url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+      {:error, :invalid_database_config} ->
+        raise """
+        Configure DATABASE_URL or all of DATABASE_HOST, DATABASE_USERNAME,
+        DATABASE_PASSWORD, and DATABASE_NAME with nonblank values.
+        """
+    end
+
+  repo_config =
+    Keyword.put(
+      database_config,
+      :pool_size,
+      String.to_integer(System.get_env("POOL_SIZE") || "10")
+    )
+
+  config :aludel_dash, AludelDash.Repo, repo_config
 
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
