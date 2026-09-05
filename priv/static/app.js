@@ -22140,19 +22140,21 @@ removing illegal node: "${("outerHTML" in childNode && childNode.outerHTML || ch
       this.hiddenInput.dispatchEvent(new Event("input", { bubbles: true }));
     },
     renderTags() {
-      this.container.innerHTML = "";
+      this.container.textContent = "";
       this.tags.forEach((tag, index) => {
         const chip = document.createElement("span");
         chip.className = "tag-chip";
-        chip.innerHTML = `
-        ${tag}
-        <button type="button" class="tag-remove" data-index="${index}">\xD7</button>
-      `;
-        const removeBtn = chip.querySelector(".tag-remove");
+        chip.appendChild(document.createTextNode(tag));
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "tag-remove";
+        removeBtn.dataset.index = index;
+        removeBtn.textContent = "\xD7";
         removeBtn.addEventListener("click", (e) => {
           e.preventDefault();
           this.removeTag(index);
         });
+        chip.appendChild(removeBtn);
         this.container.appendChild(chip);
       });
     }

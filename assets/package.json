@@ -2,6 +2,9 @@
   "name": "aludel",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "test": "node --test js/**/*.test.mjs"
+  },
   "dependencies": {
     "chart.js": "^4.5.1"
   }

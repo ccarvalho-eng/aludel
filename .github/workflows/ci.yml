@@ -59,6 +59,10 @@ jobs:
       - name: Build assets
         run: mix assets.build
 
+      - name: Run frontend tests
+        working-directory: assets
+        run: npm test
+
       - name: Create and migrate database
         run: mix ecto.create && mix ecto.migrate
 

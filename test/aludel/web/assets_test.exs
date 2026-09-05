@@ -27,6 +27,18 @@ defmodule Aludel.Web.AssetsTest do
       assert conn.status == 404
       assert conn.resp_body == "Not Found"
     end
+
+    test "tag input renders persisted tags as text" do
+      source = File.read!("assets/js/hooks/tag_input.js")
+      bundle = File.read!("priv/static/app.js")
+
+      assert source =~ "document.createTextNode(tag)"
+      assert source =~ "removeBtn.textContent = '×'"
+      refute source =~ "chip.innerHTML"
+
+      assert bundle =~ "document.createTextNode(tag)"
+      refute bundle =~ "chip.innerHTML"
+    end
   end
 
   describe "call/2 :font" do
