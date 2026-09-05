@@ -108,6 +108,8 @@ mix phx.server
 - Ensure all tests pass before submitting: `mix test`
 - Maintain or improve code coverage
 
+Run `mix quality` before opening a pull request. It enforces formatting, compilation, compile-cycle detection, strict Credo and ExSlop checks, the established duplicate-code budget, documentation and typespec coverage, dependency advisories, and Dialyzer. `mix precommit` adds the security scan and complete test suite.
+
 ## Maintainer Releases
 
 Keep user-facing release notes under `Unreleased` in `CHANGELOG.md`, then run the **Release Hex Package** workflow with the next SemVer version without a leading `v`. The workflow serializes releases, moves those curated notes into the new version, verifies the package, creates the version commit and annotated tag, publishes the GitHub release, and publishes the Hex package and documentation.

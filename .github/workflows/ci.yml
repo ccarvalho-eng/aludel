@@ -112,7 +112,35 @@ jobs:
         run: MIX_ENV=dev mix compile
 
       - name: Run Credo
-        run: mix credo
+        run: mix credo --strict
+
+  quality-gates:
+    name: Package Quality Gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Elixir
+        uses: ./.github/actions/setup-elixir
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Check compile dependency cycles
+        run: mix xref graph --format cycles --label compile-connected --fail-above 0
+
+      - name: Check duplicate code budget
+        run: mix quality.ex_dna
+
+      - name: Check documentation coverage
+        run: mix doctor --raise
+
+      - name: Build documentation
+        env:
+          MIX_ENV: dev
+        run: mix docs
 
   dialyzer:
     name: Static Analysis (Dialyzer)

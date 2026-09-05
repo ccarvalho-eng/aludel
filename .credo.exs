@@ -1,5 +1,17 @@
 # This file contains the configuration for Credo and you are probably reading
 # this after creating it with `mix credo.gen.config`.
+# Existing findings in these categories are handled in a follow-up cleanup before
+# the checks join the enforced set.
+excluded_ex_slop_checks = [
+  ExSlop.Check.Warning.DualKeyAccess,
+  ExSlop.Check.Refactor.LengthComparison,
+  ExSlop.Check.Refactor.WithIdentityElse,
+  ExSlop.Check.Readability.NarratorDoc
+]
+
+ex_slop_checks =
+  Enum.map(ExSlop.recommended_checks() -- excluded_ex_slop_checks, &{&1, []})
+
 #
 # If you find anything wrong or unclear in this file, please report an
 # issue on GitHub: https://github.com/rrrene/credo/issues
@@ -160,6 +172,7 @@
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []},
           {Credo.Check.Warning.WrongTestFileExtension, []}
+          | ex_slop_checks
         ],
         disabled: [
           #
