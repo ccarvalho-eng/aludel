@@ -142,7 +142,34 @@ IO.inspect(generation.limits)
 
 Failures contain only the category, stable failure type, and a safe message. Raw provider errors and malformed model output are not retained. The raw target context is represented by a checksum in the generation result. Each candidate and the complete generation record have checksums for stable review.
 
-Generation deliberately stops at the review boundary: it does not create, update, delete, or execute dataset entries. Use the candidate prompt, rationale, category, severity, technique, and recommended judge as review inputs before authoring an evaluation case.
+Generation deliberately stops at the review boundary: it does not create, update, delete, or execute dataset entries. Use the candidate prompt, rationale, category, severity, technique, and recommended judge as review inputs.
+
+### Approve and import candidates
+
+Import requires the stable IDs of at least one explicitly approved candidate:
+
+```elixir
+approved_case_ids =
+  generation.cases
+  |> Enum.filter(&approved_by_reviewer?/1)
+  |> Enum.map(& &1.id)
+
+{:ok, %{created: created, skipped: skipped}} =
+  Aludel.RedTeam.import_generated(dataset, generation,
+    approved_case_ids: approved_case_ids,
+    variable: "input",
+    judge_provider_id: generator_provider.id,
+    judge_threshold: 80
+  )
+```
+
+The judge provider defaults to the provider that generated the candidates. Each imported case receives its recommended built-in rubric judge. You can select another provider UUID and a threshold from 0 through 100.
+
+Before locking the dataset, Aludel revalidates the complete generation checksum, its outcome accounting, and every candidate checksum. Candidate IDs must be non-empty, unique, and present in that generation. Approved cases retain generation status, failures, observed usage, applied limits, provider and model identity, target-context checksum, rationale, classification, review evidence, and import checksums in metadata. Raw target context is not copied into the entry.
+
+The complete approved selection is written atomically in generation order. Repeating the same import returns the existing entries in `skipped`. A changed payload, generation receipt, review record, variable, or judge configuration under the same deduplication key returns `{:error, {:deduplication_conflict, key}}` and rolls back every new entry in that call.
+
+Generation and approval/import are Elixir API features. The dashboard can inspect and edit imported entries and populate suites from their dataset, while `mix aludel.eval`, ExUnit, and the evaluation API run the resulting persisted suite. There is no separate generation or import command in the Mix CLI and no generation/import form in the dashboard.
 
 ## Use the entries
 

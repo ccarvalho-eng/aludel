@@ -235,5 +235,27 @@ defmodule Aludel.RedTeamTest do
 
       assert "has already been taken" in errors_on(changeset).red_team_deduplication_key
     end
+
+    test "supports the longest valid variable without exceeding the database key", %{
+      dataset: dataset
+    } do
+      variable = "v" <> String.duplicate("a", 199)
+
+      assert {:ok, %{created: [entry], skipped: []}} =
+               RedTeam.materialize(dataset,
+                 case_ids: ["direct-instruction-override"],
+                 variable: variable
+               )
+
+      assert byte_size(entry.red_team_deduplication_key) <= 255
+
+      assert {:ok, %{created: [], skipped: [skipped]}} =
+               RedTeam.materialize(dataset,
+                 case_ids: ["direct-instruction-override"],
+                 variable: variable
+               )
+
+      assert skipped.id == entry.id
+    end
   end
 end
