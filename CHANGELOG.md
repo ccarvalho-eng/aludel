@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.7.0] - 2026-09-05
+
 ### Added
 - Add validated local, AWS S3, and GCS storage configuration to the standalone release
 - Add context-rich evaluation metric inputs and structured evaluator execution details
