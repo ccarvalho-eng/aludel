@@ -1173,7 +1173,14 @@
                       {format_score(suite_run.avg_score)}% avg score
                     </div>
                   <% end %>
-                  <div style="margin-top: 8px;">
+                  <div style="margin-top: 8px; display: flex; justify-content: flex-end; gap: 6px;">
+                    <.link
+                      id={"open-suite-report-#{suite_run.id}"}
+                      navigate={aludel_path("suites/runs/#{suite_run.id}/report")}
+                      style="display: inline-flex; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); border-radius: 8px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: none; transition: background-color 0.2s ease, color 0.2s ease;"
+                    >
+                      Reports
+                    </.link>
                     <a
                       id={"export-suite-run-#{suite_run.id}"}
                       href={aludel_path("suites/runs/#{suite_run.id}/export")}

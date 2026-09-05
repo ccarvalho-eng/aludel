@@ -1523,6 +1523,12 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
                "#export-suite-run-#{suite_run.id}[href='/suites/runs/#{suite_run.id}/export']",
                "Export JSON"
              )
+
+      assert has_element?(
+               view,
+               "#open-suite-report-#{suite_run.id}[href='/suites/runs/#{suite_run.id}/report']",
+               "Reports"
+             )
     end
 
     test "renders deep compare score details for suite results", %{conn: conn} do
