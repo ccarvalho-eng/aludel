@@ -79,6 +79,8 @@ The suite UI supports:
 
 Built-in metrics are `contains`, `not_contains`, `regex`, `exact_match`, `json_field`, `json_deep_compare`, and `rubric_judge`. See the [Evaluation Guide](evaluations.md) for examples and programmatic policy configuration.
 
+The visual assertion editor configures either a built-in judge template or a custom rubric, a separate judge provider, a 0–100 pass threshold, an optional reference answer, and optional grounding context. The raw JSON editor exposes the same assertion contract. Once saved, judge assertions run through the dashboard, Mix CLI, ExUnit, file-based suites, and the Elixir API.
+
 ## Reusable datasets
 
 Datasets are ordered collections of evaluation examples that can be reused by multiple suites. A dataset entry can contain:

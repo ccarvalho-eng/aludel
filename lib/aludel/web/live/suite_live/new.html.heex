@@ -192,7 +192,8 @@
                                 {"regex", "regex"},
                                 {"exact", "exact_match"},
                                 {"json field", "json_field"},
-                                {"json deep compare", "json_deep_compare"}
+                                {"json deep compare", "json_deep_compare"},
+                                {"rubric judge", "rubric_judge"}
                               ]}
                               class="w-full select text-[13px]"
                             />
@@ -321,6 +322,173 @@
                                 />
                               </div>
                             </div>
+                          <% current_type == "rubric_judge" -> %>
+                            <% rubric_source =
+                              assertion_rubric_source_value(
+                                test_case.id,
+                                idx,
+                                @test_case_form_params,
+                                assertion
+                              ) %>
+                            <% judge_provider_id =
+                              assertion_text_value(
+                                test_case.id,
+                                idx,
+                                "provider_id",
+                                "provider_id",
+                                @test_case_form_params,
+                                assertion
+                              ) %>
+                            <div
+                              id={"judge-fields-#{test_case.id}-#{idx}"}
+                              style="display: flex; flex-direction: column; gap: 10px;"
+                            >
+                              <.input
+                                type="select"
+                                name={"suite[test_cases][#{test_case.id}][assertions][assertion_rubric_source_#{idx}]"}
+                                value={rubric_source}
+                                options={[
+                                  {"Built-in judge", "template"},
+                                  {"Custom rubric", "custom"}
+                                ]}
+                                id={"test_case_#{test_case.id}_assertion_rubric_source_#{idx}"}
+                                label="Judge criteria"
+                              />
+                              <%= if rubric_source == "custom" do %>
+                                <.input
+                                  type="textarea"
+                                  name={"suite[test_cases][#{test_case.id}][assertions][assertion_rubric_#{idx}]"}
+                                  value={
+                                    assertion_text_value(
+                                      test_case.id,
+                                      idx,
+                                      "rubric",
+                                      "rubric",
+                                      @test_case_form_params,
+                                      assertion
+                                    )
+                                  }
+                                  id={"test_case_#{test_case.id}_assertion_rubric_#{idx}"}
+                                  label="Custom rubric"
+                                  maxlength="4000"
+                                  rows="5"
+                                  placeholder="Describe exactly how the response should be scored."
+                                />
+                              <% else %>
+                                <.input
+                                  type="select"
+                                  name={"suite[test_cases][#{test_case.id}][assertions][assertion_template_#{idx}]"}
+                                  value={
+                                    assertion_text_value(
+                                      test_case.id,
+                                      idx,
+                                      "template",
+                                      "template",
+                                      @test_case_form_params,
+                                      assertion
+                                    )
+                                  }
+                                  options={
+                                    Enum.map(
+                                      @judge_templates,
+                                      &{"#{&1.name} — #{&1.description}", &1.id}
+                                    )
+                                  }
+                                  prompt="Choose a built-in judge"
+                                  id={"test_case_#{test_case.id}_assertion_template_#{idx}"}
+                                  label="Built-in judge"
+                                />
+                              <% end %>
+                              <.input
+                                type="select"
+                                name={"suite[test_cases][#{test_case.id}][assertions][assertion_provider_id_#{idx}]"}
+                                value={judge_provider_id}
+                                options={judge_provider_options(@providers, judge_provider_id)}
+                                prompt="Choose a judge provider"
+                                id={"test_case_#{test_case.id}_assertion_provider_id_#{idx}"}
+                                label="Judge provider"
+                              />
+                              <.input
+                                type="number"
+                                name={"suite[test_cases][#{test_case.id}][assertions][assertion_threshold_#{idx}]"}
+                                value={
+                                  assertion_threshold_value(
+                                    test_case.id,
+                                    idx,
+                                    @test_case_form_params,
+                                    assertion
+                                  )
+                                }
+                                min="0"
+                                max="100"
+                                step="0.1"
+                                placeholder="80"
+                                id={"test_case_#{test_case.id}_assertion_threshold_#{idx}"}
+                                label="Pass threshold (defaults to 80)"
+                              />
+                              <.input
+                                type="textarea"
+                                name={"suite[test_cases][#{test_case.id}][assertions][assertion_expected_#{idx}]"}
+                                value={
+                                  assertion_text_value(
+                                    test_case.id,
+                                    idx,
+                                    "expected",
+                                    "expected",
+                                    @test_case_form_params,
+                                    assertion
+                                  )
+                                }
+                                id={"test_case_#{test_case.id}_assertion_expected_#{idx}"}
+                                label="Reference answer (optional)"
+                                rows="3"
+                              />
+                              <input
+                                type="hidden"
+                                name={"suite[test_cases][#{test_case.id}][assertions][assertion_expected_json_value_#{idx}]"}
+                                value={
+                                  assertion_evidence_json_value(
+                                    test_case.id,
+                                    idx,
+                                    "expected",
+                                    @test_case_form_params,
+                                    assertion
+                                  )
+                                }
+                                id={"test_case_#{test_case.id}_assertion_expected_json_value_#{idx}"}
+                              />
+                              <.input
+                                type="textarea"
+                                name={"suite[test_cases][#{test_case.id}][assertions][assertion_context_#{idx}]"}
+                                value={
+                                  assertion_text_value(
+                                    test_case.id,
+                                    idx,
+                                    "context",
+                                    "context",
+                                    @test_case_form_params,
+                                    assertion
+                                  )
+                                }
+                                id={"test_case_#{test_case.id}_assertion_context_#{idx}"}
+                                label="Grounding context (optional)"
+                                rows="3"
+                              />
+                              <input
+                                type="hidden"
+                                name={"suite[test_cases][#{test_case.id}][assertions][assertion_context_json_value_#{idx}]"}
+                                value={
+                                  assertion_evidence_json_value(
+                                    test_case.id,
+                                    idx,
+                                    "context",
+                                    @test_case_form_params,
+                                    assertion
+                                  )
+                                }
+                                id={"test_case_#{test_case.id}_assertion_context_json_value_#{idx}"}
+                              />
+                            </div>
                           <% true -> %>
                             <div
                               id={"value-field-#{test_case.id}-#{idx}"}
@@ -361,7 +529,7 @@
                       class="json-editor"
                     />
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                      Types: contains, not_contains, regex, exact_match, json_field, json_deep_compare
+                      Types: contains, not_contains, regex, exact_match, json_field, json_deep_compare, rubric_judge
                     </div>
                   <% end %>
                 </div>

@@ -129,7 +129,7 @@ Use a rubric judge when correctness depends on meaning rather than an exact stri
 ]
 ```
 
-Author rubric assertions in the JSON assertion editor. Scores range from 0 to 100, and Aludel derives the pass or fail result from `threshold`; a model-provided verdict is never trusted. Evaluation evidence is bounded and sent as untrusted JSON data so content under test cannot replace the rubric or output contract.
+In the dashboard's visual assertion editor, choose `rubric judge`, select **Custom rubric**, and configure the rubric, judge provider, threshold, optional reference answer, and optional grounding context. The JSON assertion editor accepts the same fields. Scores range from 0 to 100, and Aludel derives the pass or fail result from `threshold`; a model-provided verdict is never trusted. Evaluation evidence is bounded and sent as untrusted JSON data so content under test cannot replace the rubric or output contract.
 
 For common checks, replace `rubric` with a versioned built-in `template`:
 
@@ -155,6 +155,8 @@ For common checks, replace `rubric` with a versioned built-in `template`:
 | `hallucination` | Fabricated facts, citations, entities, tool results, or outcomes |
 
 Templates and custom rubrics are mutually exclusive. Aludel records the resolved rubric and template version with each result, so a historical run retains the criteria it used.
+
+To configure a template visually, choose `rubric judge`, keep **Built-in judge** selected, choose one of the seven versioned templates, and select a configured judge provider. Persisted judge assertions have the same execution behavior in the dashboard, `mix aludel.eval`, ExUnit, file-based suites, and the Elixir API; the visual controls are a dashboard authoring feature.
 
 ### Inspect metric context and evaluator details
 

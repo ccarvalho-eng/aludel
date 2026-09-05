@@ -8,9 +8,11 @@ defmodule Aludel.Web.SuiteLive.New do
   alias Aludel.Evals
   alias Aludel.Evals.AssertionParser
   alias Aludel.Evals.DocumentIngestion
+  alias Aludel.Evals.JudgeCatalog
   alias Aludel.Evals.Suite
   alias Aludel.Projects
   alias Aludel.Prompts
+  alias Aludel.Providers
 
   @document_upload_names Enum.map(0..49, &:"test_case_documents_#{&1}")
   @document_upload_accept ~w(.pdf .png .jpg .jpeg .csv .json .txt)
@@ -157,6 +159,7 @@ defmodule Aludel.Web.SuiteLive.New do
     changeset = Evals.change_suite(suite, initial_data)
     prompts = Prompts.list_prompts_with_versions()
     projects = Projects.list_projects(type: :suite)
+    providers = Providers.list_providers()
 
     socket
     |> assign(:page_title, "New Suite")
@@ -164,6 +167,8 @@ defmodule Aludel.Web.SuiteLive.New do
     |> assign(:form, to_form(changeset))
     |> assign(:prompts, prompts)
     |> assign(:projects, projects)
+    |> assign(:providers, providers)
+    |> assign(:judge_templates, JudgeCatalog.all())
     |> assign(:test_cases, [])
     |> assign(:selected_prompt, nil)
     |> assign(:assertion_edit_mode, %{})
@@ -175,6 +180,7 @@ defmodule Aludel.Web.SuiteLive.New do
     changeset = Evals.change_suite(suite)
     prompts = Prompts.list_prompts_with_versions()
     projects = Projects.list_projects(type: :suite)
+    providers = Providers.list_providers()
 
     # Get the selected prompt if suite has one
     selected_prompt =
@@ -202,6 +208,8 @@ defmodule Aludel.Web.SuiteLive.New do
     |> assign(:form, to_form(changeset))
     |> assign(:prompts, prompts)
     |> assign(:projects, projects)
+    |> assign(:providers, providers)
+    |> assign(:judge_templates, JudgeCatalog.all())
     |> assign(:test_cases, test_cases)
     |> assign(:selected_prompt, selected_prompt)
     |> assign(:assertion_edit_mode, %{})
@@ -611,6 +619,36 @@ defmodule Aludel.Web.SuiteLive.New do
 
       value ->
         value
+    end
+  end
+
+  defp assertion_rubric_source_value(test_case_id, idx, form_params, assertion) do
+    case assertion_form_value(test_case_id, idx, "rubric_source", form_params) do
+      nil -> if is_binary(assertion["rubric"]), do: "custom", else: "template"
+      value -> value
+    end
+  end
+
+  defp assertion_evidence_json_value(
+         test_case_id,
+         idx,
+         field_name,
+         form_params,
+         assertion
+       ) do
+    case assertion_form_value(test_case_id, idx, "#{field_name}_json_value", form_params) do
+      nil -> Jason.encode!(Map.get(assertion, field_name))
+      value -> value
+    end
+  end
+
+  defp judge_provider_options(providers, selected_id) do
+    options = Enum.map(providers, &{&1.name, &1.id})
+
+    if selected_id == "" or Enum.any?(providers, &(&1.id == selected_id)) do
+      options
+    else
+      [{"Unavailable provider (#{selected_id})", selected_id} | options]
     end
   end
 

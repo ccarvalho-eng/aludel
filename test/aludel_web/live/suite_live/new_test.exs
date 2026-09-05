@@ -3,6 +3,7 @@ defmodule Aludel.Web.SuiteLive.NewTest do
 
   import Phoenix.LiveViewTest
   import Aludel.PromptsFixtures
+  import Aludel.ProvidersFixtures
 
   alias Aludel.Evals
   alias Aludel.Projects
@@ -154,6 +155,86 @@ defmodule Aludel.Web.SuiteLive.NewTest do
       assert has_element?(view, "#test_case_#{test_case_id}_assertion_expected_json_0")
       assert has_element?(view, "#test_case_#{test_case_id}_assertion_threshold_0[value='80.0']")
       refute has_element?(view, "#value-field-#{test_case_id}-0")
+    end
+
+    test "creates a suite with a visually configured built-in judge", %{conn: conn} do
+      prompt = prompt_fixture_with_version(%{template: "Question: {{question}}"})
+      provider = provider_fixture(%{name: "Judge provider"})
+      {:ok, view, _html} = live(conn, "/suites/new")
+
+      view
+      |> form("#suite-form", suite: %{name: "Judge Suite", prompt_id: prompt.id})
+      |> render_change()
+
+      view
+      |> element("[phx-click='add_test_case']")
+      |> render_click()
+
+      test_case_id = List.first(:sys.get_state(view.pid).socket.assigns.test_cases).id
+      render_click(view, "add_assertion", %{"id" => test_case_id})
+
+      assert has_element?(view, "#assertion-type-#{test_case_id}-0", "rubric judge")
+
+      view
+      |> form("#suite-form",
+        suite: %{
+          name: "Judge Suite",
+          prompt_id: prompt.id,
+          test_cases: %{
+            test_case_id => %{
+              variable_values: %{question: "What is the capital of France?"},
+              assertions: %{assertion_type_0: "rubric_judge"}
+            }
+          }
+        }
+      )
+      |> render_change()
+
+      assert has_element?(view, "#judge-fields-#{test_case_id}-0")
+      assert has_element?(view, "#test_case_#{test_case_id}_assertion_template_0")
+      assert has_element?(view, "#test_case_#{test_case_id}_assertion_provider_id_0")
+
+      params = %{
+        name: "Judge Suite",
+        prompt_id: prompt.id,
+        test_cases: %{
+          test_case_id => %{
+            variable_values: %{question: "What is the capital of France?"},
+            assertions: %{
+              assertion_type_0: "rubric_judge",
+              assertion_rubric_source_0: "template",
+              assertion_template_0: "correctness",
+              assertion_provider_id_0: provider.id,
+              assertion_threshold_0: "90",
+              assertion_expected_0: "Paris",
+              assertion_context_0: "Geography question"
+            }
+          }
+        }
+      }
+
+      view
+      |> form("#suite-form", suite: params)
+      |> render_change()
+
+      view
+      |> form("#suite-form", suite: params)
+      |> render_submit()
+
+      {path, _flash} = assert_redirect(view)
+      [_, suite_id] = Regex.run(~r{/suites/([^/]+)$}, path)
+      [test_case] = Evals.get_suite_with_test_cases_and_prompt!(suite_id).test_cases
+
+      assert test_case.assertions == [
+               %{
+                 "type" => "rubric_judge",
+                 "template" => "correctness",
+                 "provider_id" => provider.id,
+                 "threshold" => 90.0,
+                 "expected" => "Paris",
+                 "context" => "Geography question"
+               }
+             ]
     end
 
     test "switches from deep compare to json_field controls", %{conn: conn} do

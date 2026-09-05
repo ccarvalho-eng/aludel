@@ -81,6 +81,8 @@ Use a rubric judge when correctness depends on meaning instead of an exact strin
 
 Replace the placeholder with the ID of a configured provider.
 
+In the dashboard, add or edit a suite test case, choose **rubric judge** in the visual assertion editor, then select a built-in judge or enter a custom rubric. The same controls set the judge provider, pass threshold, optional reference answer, and optional grounding context. JSON assertions remain available for direct editing, and persisted judge assertions run unchanged from the dashboard, `mix aludel.eval`, ExUnit, and the Elixir API.
+
 The catalog includes correctness, relevance, faithfulness, safety, refusal quality, PII protection, and hallucination checks. Aludel records the resolved rubric and template version alongside score, reasoning, duration, provider, model, token usage, cost, and structured evaluator status.
 
 See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#custom-rubric-judge), [rubric judge guide](https://github.com/ccarvalho-eng/aludel/wiki/Rubric-Judges), and [judge catalog](https://github.com/ccarvalho-eng/aludel/wiki/Judge-Catalog).
