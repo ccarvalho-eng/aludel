@@ -542,7 +542,7 @@ Uploaded test case documents go through `Aludel.Storage`. Documents can be attac
 Supported uploads are PDF, PNG, JPEG, JSON, CSV, and plain text. Anthropic accepts PDFs natively; adapters that require images can use the configurable ImageMagick converter.
 
 - Development uses the local filesystem adapter from `config/dev.exs`.
-- Production uses `config/runtime.exs` and requires `ALUDEL_STORAGE_BACKEND`.
+- Standalone production validates `ALUDEL_STORAGE_BACKEND` and its backend-specific settings at startup.
 
 ### Development storage
 
@@ -550,7 +550,14 @@ Development stores uploaded documents on the local filesystem.
 
 ### Production storage
 
-Set `ALUDEL_STORAGE_BACKEND` to `aws` or `gcs`.
+Set `ALUDEL_STORAGE_BACKEND` to `local`, `aws`, or `gcs`.
+
+For a persistent local volume:
+
+```bash
+export ALUDEL_STORAGE_BACKEND=local
+export ALUDEL_STORAGE_PATH=/data/aludel_uploads
+```
 
 For AWS S3:
 
@@ -558,8 +565,14 @@ For AWS S3:
 export ALUDEL_STORAGE_BACKEND=aws
 export AWS_S3_BUCKET=aludel-uploads
 export AWS_REGION=us-east-1
+```
+
+The standalone release uses the AWS runtime identity provider when credentials are not explicitly set. When static or temporary credentials are needed, set the access-key pair together; the session token is optional:
+
+```bash
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
 ```
 
 For Google Cloud Storage:
@@ -578,6 +591,10 @@ export GCS_USER_PROJECT=your-billing-project-id
 
 The GCS adapter uses `Goth` with standard Google application credentials.
 `GOOGLE_APPLICATION_CREDENTIALS_JSON` also works if you prefer inline JSON.
+
+Startup rejects missing backend settings, unsupported backends, and partial or blank explicit AWS credentials. Embedded applications can configure `Aludel.Storage` directly for these adapters or a custom backend.
+
+Changing the active backend does not move existing objects. Keep the former backend variables configured until its documents have been removed or migrated; the standalone release retains every completely configured backend for reads and cleanup of existing document rows.
 
 ## Evaluation Workflows
 

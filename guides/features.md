@@ -116,6 +116,8 @@ Document bytes are kept outside PostgreSQL through `Aludel.Storage`; database ro
 - AWS S3
 - Google Cloud Storage, including requester-pays buckets
 
+The standalone release selects local, AWS S3, or GCS storage through validated environment settings. AWS can use its runtime identity provider or an explicit access-key pair, and local production requires an explicit persistent path.
+
 Anthropic can receive PDFs natively. Providers that require images can use the configurable ImageMagick PDF converter.
 
 ## Prompt evolution and optimization
