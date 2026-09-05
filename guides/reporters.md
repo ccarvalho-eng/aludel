@@ -2,6 +2,12 @@
 
 Aludel turns every persisted suite run into one normalized report before formatting it. This gives local tools and CI systems the same status, identifiers, summaries, quality-policy evidence, and case results without tying an output format to the database schema.
 
+## Preview and download reports in the dashboard
+
+Open a suite, find a completed result, and choose **Reports**. Select console text, JSON v2, JUnit XML, or GitHub annotations to update the preview and download the complete rendered report. Previews are limited to 100,000 characters so a large result cannot overwhelm the page; the downloaded report is not truncated and uses no-store response headers.
+
+Console and GitHub formats omit generated responses. JSON includes them in its stable result schema. JUnit omits them until **Include generated output** is enabled, and keeps the choice in the download URL so preview and file content match. The full persisted suite-run JSON export remains available separately from the normalized report.
+
 ## Render reports in Elixir
 
 Pass a persisted `Aludel.Evals.SuiteRun` or an existing `Aludel.Evals.Report` to `Aludel.Evals.Reporter`:

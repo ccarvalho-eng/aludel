@@ -76,7 +76,7 @@ The suite UI supports:
 - validated quality-policy authoring with immutable version history for overall and metadata-group pass rates, evaluator scores, total cost, and average latency
 - policy version, aggregate status, and per-rule evidence on historical suite results
 - retrying one test result without rerunning the entire suite
-- copy actions and raw JSON exports
+- copy actions, raw JSON exports, and previewable console, JSON v2, JUnit XML, and GitHub annotation reports
 
 Built-in metrics are `contains`, `not_contains`, `regex`, `exact_match`, `json_field`, `json_deep_compare`, and `rubric_judge`. See the [Evaluation Guide](evaluations.md) for examples and programmatic policy configuration.
 
@@ -85,6 +85,8 @@ The visual assertion editor configures either a built-in judge template or a cus
 The suite run panel configures one to 20 attempts per test case and all, any, strict-majority, or minimum pass-rate reduction. Sampled results expose the aggregate pass evidence and an expandable ordered attempt history. File-based suites provide the same settings to the Mix CLI, while ExUnit and the Elixir API accept them as execution options.
 
 From a suite page, **Manage policy** opens a JSON editor with live validation, a starter definition, rule guidance, and inspectable immutable history. The latest version applies to future runs. Historical result cards retain the version they used and display each rule's measured evidence. The dashboard and Elixir API create versions; the Mix CLI, ExUnit, reporters, and exports consume the resulting gate.
+
+Each suite result links to a report workspace for safe browser previews and downloads. Console and GitHub formats omit generated responses, JSON includes them as part of its stable interchange schema, and JUnit requires explicit output opt-in. The dashboard bounds previews while keeping downloads complete and uncached. The same formats are available through `mix aludel.eval` and `Aludel.Evals.Reporter`.
 
 ## Reusable datasets
 

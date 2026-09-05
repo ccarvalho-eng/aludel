@@ -234,6 +234,67 @@ defmodule Aludel.Web.ExportControllerTest do
     end
   end
 
+  describe "GET /suites/runs/:id/report/:format" do
+    test "downloads each built-in evaluation report with safe response headers", %{conn: conn} do
+      suite_run = suite_run_fixture(%{passed: 1, failed: 0, results: []})
+
+      formats = [
+        {"console", "text/plain", ".txt", "Aludel evaluation"},
+        {"json", "application/json", ".json", ~s("schema_version": 2)},
+        {"junit", "application/xml", ".xml", "<testsuites"},
+        {"github", "text/plain", ".txt", "::notice title=Aludel evaluation"}
+      ]
+
+      Enum.each(formats, fn {format, content_type, extension, expected} ->
+        response = get(recycle(conn), "/suites/runs/#{suite_run.id}/report/#{format}")
+
+        assert response.status == 200
+        assert response.resp_body =~ expected
+        assert List.first(get_resp_header(response, "content-type")) =~ content_type
+        assert get_resp_header(response, "cache-control") == ["no-store, max-age=0"]
+
+        assert get_resp_header(response, "content-disposition") == [
+                 "attachment; filename=\"evaluation-report-#{suite_run.id}#{extension}\""
+               ]
+      end)
+    end
+
+    test "includes generated output in JUnit only after explicit opt-in", %{conn: conn} do
+      output = "Generated response"
+
+      suite_run =
+        suite_run_fixture(%{
+          passed: 1,
+          failed: 0,
+          results: [
+            %{
+              "test_case_id" => Ecto.UUID.generate(),
+              "passed" => true,
+              "output" => output,
+              "assertion_results" => []
+            }
+          ]
+        })
+
+      default_response = get(conn, "/suites/runs/#{suite_run.id}/report/junit")
+      refute default_response.resp_body =~ output
+
+      opted_in_response =
+        get(recycle(conn), "/suites/runs/#{suite_run.id}/report/junit?include_output=true")
+
+      assert opted_in_response.resp_body =~ output
+    end
+
+    test "rejects unsupported report formats without resolving arbitrary modules", %{conn: conn} do
+      suite_run = suite_run_fixture()
+
+      response = get(conn, "/suites/runs/#{suite_run.id}/report/Elixir.System")
+
+      assert response.status == 400
+      assert response.resp_body == "Unsupported report format"
+    end
+  end
+
   describe "GET /prompts/:id/evolution/export/:format" do
     test "downloads evolution metrics as JSON", %{conn: conn} do
       prompt = prompt_fixture_with_version(%{name: "Evolution Export Prompt"})

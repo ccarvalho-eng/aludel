@@ -219,6 +219,8 @@ See the [evaluation guide](https://hexdocs.pm/aludel/evaluations.html#enforce-a-
 
 Render the same persisted suite result for local review, API consumers, and CI systems without coupling those formats to persistence:
 
+In the dashboard, open a suite result and choose **Reports** to preview or download console text, schema-version-2 JSON, JUnit XML, or GitHub Actions annotations. Browser previews are bounded, downloads are not cached, and JUnit excludes generated responses unless **Include generated output** is explicitly enabled. The existing full run export remains available for complete persisted evidence.
+
 ```elixir
 alias Aludel.Evals.Reporter
 
@@ -230,7 +232,7 @@ github_annotations = Reporter.render!(suite_run, :github)
 
 `Aludel.Evals.Report` defines the stable schema-version-2 model. Built-in reporters cover concise console text, JSON interchange, JUnit test reports, and GitHub Actions annotations. Custom modules can implement the `Aludel.Evals.Reporter` behavior.
 
-The GitHub reporter escapes and bounds untrusted evaluator text before emitting workflow commands. JUnit output escapes identifiers and reasons, omits model output by default, and represents a policy-only rejection as a failed test case. Pass `include_output: true` or `--include-output` only when the target artifact is appropriate for generated responses.
+The dashboard, Mix CLI, and Elixir API expose the same four built-in formats. The GitHub reporter escapes and bounds untrusted evaluator text before emitting workflow commands. JUnit output escapes identifiers and reasons, omits model output by default, and represents a policy-only rejection as a failed test case. Pass `include_output: true`, enable it in the dashboard, or use `--include-output` only when the target artifact is appropriate for generated responses.
 
 See the [reporter guide](https://hexdocs.pm/aludel/reporters.html) and [evaluation reporters wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Evaluation-Reporters) for CLI, library, CI, and custom reporter examples.
 

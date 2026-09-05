@@ -6,6 +6,7 @@ defmodule Aludel.Web.ExportController do
   import Plug.Conn
 
   alias Aludel.Evals
+  alias Aludel.Evals.Reporter
   alias Aludel.Evals.SuitePolicy
   alias Aludel.Prompts
   alias Aludel.Prompts.Evolution.Export, as: EvolutionExport
@@ -28,6 +29,29 @@ defmodule Aludel.Web.ExportController do
       |> serialize_suite_run_export()
 
     send_json_download(conn, payload, "suite-run-#{id}.json")
+  end
+
+  @doc false
+  @spec suite_report(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def suite_report(conn, %{"id" => id, "format" => format} = path_params) do
+    conn = fetch_query_params(conn)
+    params = Map.merge(path_params, conn.query_params)
+
+    with {:ok, reporter, extension, content_type} <- report_config(format),
+         suite_run <- Evals.get_suite_run_for_export!(id),
+         {:ok, rendered} <- Reporter.render(suite_run, reporter, report_options(format, params)) do
+      send_report_download(conn, rendered, id, extension, content_type)
+    else
+      :error ->
+        conn
+        |> put_status(400)
+        |> send_resp(400, "Unsupported report format")
+
+      {:error, _reason} ->
+        conn
+        |> put_status(500)
+        |> send_resp(500, "Report could not be rendered")
+    end
   end
 
   @doc """
@@ -80,6 +104,49 @@ defmodule Aludel.Web.ExportController do
       filename: filename,
       content_type: "application/json"
     )
+  end
+
+  defp send_report_download(conn, rendered, id, extension, content_type) do
+    conn
+    |> put_resp_header("cache-control", "no-store, max-age=0")
+    |> put_resp_header("pragma", "no-cache")
+    |> put_resp_header("expires", "0")
+    |> send_download({:binary, rendered},
+      filename: "evaluation-report-#{id}#{extension}",
+      content_type: content_type
+    )
+  end
+
+  defp report_config("console") do
+    {:ok, :console, ".txt", "text/plain; charset=utf-8"}
+  end
+
+  defp report_config("json") do
+    {:ok, :json, ".json", "application/json"}
+  end
+
+  defp report_config("junit") do
+    {:ok, :junit, ".xml", "application/xml"}
+  end
+
+  defp report_config("github") do
+    {:ok, :github, ".txt", "text/plain; charset=utf-8"}
+  end
+
+  defp report_config(_format) do
+    :error
+  end
+
+  defp report_options("json", _params) do
+    [pretty: true]
+  end
+
+  defp report_options("junit", params) do
+    [include_output: Map.get(params, "include_output") == "true"]
+  end
+
+  defp report_options(_format, _params) do
+    []
   end
 
   defp serialize_run_result_export(result) do
