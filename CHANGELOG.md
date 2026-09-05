@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Remove the storage compile dependency cycle and route document persistence through the public storage facade
+- Lock the standalone YAML parser dependencies required by file-based suite manifests
 - Add repeatable quality gates for high-signal code smells, compile cycles, duplicate code, documentation coverage, dependency advisories, and static analysis
 - Normalize provider pricing at its boundary and replace redundant control flow, generated documentation text, and full-list length checks with idiomatic Elixir
 - Document the dataset, storage, and execution APIs and raise the enforced documentation coverage floor
