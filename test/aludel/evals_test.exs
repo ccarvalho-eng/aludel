@@ -445,7 +445,7 @@ defmodule Aludel.EvalsTest do
           ]
         })
 
-      expect(HttpClientMock, :request, fn _model, prompt, _opts ->
+      expect(HttpClientMock, :request, 2, fn _model, prompt, _opts ->
         assert prompt == "Hello Alice"
 
         {:ok, build_mock_response("Hello Alice", 5, 10)}
@@ -478,6 +478,64 @@ defmodule Aludel.EvalsTest do
                result["test_case_id"] == retried_test_case.id and
                  result["retry_count"] == 1 and result["output"] == "Hello Alice"
              end)
+
+      assert {:ok, retried_again} =
+               Evals.retry_suite_run_test_case(suite_run, retried_test_case.id)
+
+      retried_again_result =
+        Enum.find(retried_again.results, fn result ->
+          result["test_case_id"] == retried_test_case.id
+        end)
+
+      assert retried_again_result["retry_count"] == 2
+    end
+
+    test "retry_suite_run_test_case/2 rejects a concurrent stale write" do
+      prompt = prompt_fixture()
+      {:ok, version} = Aludel.Prompts.create_prompt_version(prompt, "Hello {{name}}")
+      suite = suite_fixture(%{prompt_id: prompt.id})
+      provider = provider_fixture()
+
+      test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          variable_values: %{"name" => "Alice"},
+          assertions: [%{"type" => "contains", "value" => "Hello"}]
+        })
+
+      suite_run =
+        suite_run_fixture(%{
+          suite_id: suite.id,
+          prompt_version_id: version.id,
+          provider_id: provider.id,
+          failed: 1,
+          results: [
+            %{
+              "test_case_id" => test_case.id,
+              "passed" => false,
+              "output" => "failed",
+              "assertion_results" => []
+            }
+          ]
+        })
+
+      expect(HttpClientMock, :request, fn _model, _prompt, _opts ->
+        repo = Aludel.Repo.get()
+        current_suite_run = Evals.get_suite_run!(suite_run.id)
+
+        {:ok, _concurrent_update} =
+          current_suite_run
+          |> SuiteRun.changeset(%{failed: 2})
+          |> Ecto.Changeset.optimistic_lock(:lock_version)
+          |> repo.update()
+
+        {:ok, build_mock_response("Hello Alice", 5, 10)}
+      end)
+
+      assert {:error, :stale_suite_run} =
+               Evals.retry_suite_run_test_case(suite_run, test_case.id)
+
+      assert Evals.get_suite_run!(suite_run.id).failed == 2
     end
   end
 

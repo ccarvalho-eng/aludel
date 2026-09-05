@@ -408,13 +408,16 @@ defmodule Aludel.Evals do
 
   The existing embedded result is replaced in-place and the suite run
   aggregates are recalculated from the updated result set. Sampled results
-  repeat their complete persisted sampling configuration.
+  repeat their complete persisted sampling configuration. The run is refreshed
+  before execution, and overlapping retries reject the stale write instead of
+  replacing a newer result.
   """
   @spec retry_suite_run_test_case(SuiteRun.t(), binary()) ::
           {:ok, SuiteRun.t()} | {:error, term()}
   def retry_suite_run_test_case(%SuiteRun{} = suite_run, test_case_id)
       when is_binary(test_case_id) do
-    with {:ok, existing_result} <- fetch_suite_run_result(suite_run, test_case_id),
+    with {:ok, suite_run} <- fetch_suite_run(suite_run.id),
+         {:ok, existing_result} <- fetch_suite_run_result(suite_run, test_case_id),
          {:ok, sampling} <- Sampling.from_result(existing_result),
          {:ok, test_case} <- fetch_suite_test_case(suite_run.suite_id, test_case_id),
          {:ok, version} <- fetch_prompt_version(suite_run.prompt_version_id),
@@ -434,9 +437,13 @@ defmodule Aludel.Evals do
         |> Map.put(:results, updated_results)
         |> Map.merge(quality_policy_attrs(policy, updated_results, summary))
       )
+      |> Changeset.optimistic_lock(:lock_version)
       |> repo().update()
     end
   rescue
+    _error in Ecto.StaleEntryError ->
+      {:error, :stale_suite_run}
+
     error ->
       {:error, {:retry_failed, Exception.message(error)}}
   catch
@@ -723,6 +730,13 @@ defmodule Aludel.Evals do
     do: "Invalid callback response: #{inspect(detail)}"
 
   defp error_message(reason), do: inspect(reason)
+
+  defp fetch_suite_run(suite_run_id) do
+    case repo().get(SuiteRun, suite_run_id) do
+      nil -> {:error, :suite_run_not_found}
+      suite_run -> {:ok, suite_run}
+    end
+  end
 
   defp fetch_suite_run_result(%SuiteRun{results: results}, test_case_id) do
     case Enum.find(results, &(&1["test_case_id"] == test_case_id)) do

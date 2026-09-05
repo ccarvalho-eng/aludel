@@ -49,6 +49,7 @@ defmodule Aludel.Evals.SuiteRun do
     field :total_latency_ms, :integer
     field :latency_sample_count, :integer, default: 0
     field :quality_policy_result, :map
+    field :lock_version, :integer, default: 1
 
     belongs_to(:suite, Suite)
     belongs_to(:suite_policy, SuitePolicy)
