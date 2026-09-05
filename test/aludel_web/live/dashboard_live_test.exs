@@ -13,6 +13,26 @@ defmodule Aludel.Web.DashboardLiveTest do
     assert render(view) =~ "Dashboard"
   end
 
+  test "applies the saved theme before loading styles", %{conn: conn} do
+    html = conn |> get("/") |> html_response(200)
+
+    theme_script_position =
+      html
+      |> :binary.match(~s|localStorage.getItem("theme")|)
+      |> elem(0)
+
+    stylesheet_position =
+      html
+      |> :binary.match(~s(rel="stylesheet"))
+      |> elem(0)
+
+    assert theme_script_position < stylesheet_position
+    assert html =~ ~s|document.documentElement.setAttribute("data-theme", appliedTheme)|
+    refute html =~ "phx:theme"
+    assert html =~ ~s|href="/prompts"|
+    assert html =~ ~s|data-phx-link="redirect"|
+  end
+
   test "shows recent runs", %{conn: conn} do
     _run = run_fixture(%{name: "Recent Test Run"})
 

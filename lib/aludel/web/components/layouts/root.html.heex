@@ -10,27 +10,26 @@
       {assigns[:page_title] || "Dashboard"}
     </.live_title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href={asset_path(@conn, :css)} />
-    <script defer src={asset_path(@conn, :js)}>
-    </script>
     <script>
       (() => {
-        const setTheme = (theme) => {
-          if (theme === "system") {
-            localStorage.removeItem("phx:theme");
-            document.documentElement.removeAttribute("data-theme");
-          } else {
-            localStorage.setItem("phx:theme", theme);
-            document.documentElement.setAttribute("data-theme", theme);
-          }
-        };
-        if (!document.documentElement.hasAttribute("data-theme")) {
-          setTheme(localStorage.getItem("phx:theme") || "system");
+        let savedTheme = "system";
+
+        try {
+          savedTheme = localStorage.getItem("theme") || "system";
+        } catch (_error) {
+          // Storage can be unavailable in privacy-restricted browsing contexts.
         }
-        window.addEventListener("storage", (e) => e.key === "phx:theme" && setTheme(e.newValue || "system"));
-        
-        window.addEventListener("phx:set-theme", (e) => setTheme(e.target.dataset.phxTheme));
+
+        const theme = ["system", "light", "dark"].includes(savedTheme) ? savedTheme : "system";
+        const appliedTheme = theme === "system"
+          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : theme;
+
+        document.documentElement.setAttribute("data-theme", appliedTheme);
       })();
+    </script>
+    <link rel="stylesheet" href={asset_path(@conn, :css)} />
+    <script defer src={asset_path(@conn, :js)}>
     </script>
   </head>
   <body>

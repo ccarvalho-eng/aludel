@@ -46,6 +46,10 @@ const AutoDismissFlash = {
 
 // Theme switching logic
 function setTheme(theme) {
+  if (!['system', 'light', 'dark'].includes(theme)) {
+    theme = 'system'
+  }
+
   localStorage.setItem('theme', theme)
 
   let appliedTheme = theme
@@ -76,6 +80,13 @@ window.addEventListener('phx:set-theme', (e) => {
   const theme = e.target.getAttribute('data-phx-theme')
   if (theme) {
     setTheme(theme)
+  }
+})
+
+// Keep the theme in sync when another browser window changes it.
+window.addEventListener('storage', (e) => {
+  if (e.key === 'theme') {
+    setTheme(e.newValue || 'system')
   }
 })
 
