@@ -50,4 +50,60 @@ defmodule Aludel.Web.AuthenticationTest do
       assert updated_socket.assigns.csp_nonces == %{img: "abc", style: "def", script: "ghi"}
     end
   end
+
+  describe "authorize_event/3" do
+    test "blocks mutations for read-only access" do
+      provider_socket = socket(Aludel.Web.ProviderLive.Index, :read_only)
+      run_socket = socket(Aludel.Web.RunLive.New, :read_only)
+
+      assert {:halt, updated_socket} =
+               Authentication.authorize_event("delete", %{}, provider_socket)
+
+      assert updated_socket.assigns.flash["error"] =~ "read-only"
+      assert {:halt, _socket} = Authentication.authorize_event("save", %{}, run_socket)
+    end
+
+    test "allows inspection events for read-only access" do
+      socket = socket(Aludel.Web.PromptLive.Index, :read_only)
+
+      assert {:cont, ^socket} = Authentication.authorize_event("search", %{}, socket)
+    end
+
+    test "classifies events by view as well as name" do
+      new_suite_socket = socket(Aludel.Web.SuiteLive.New, :read_only)
+      existing_suite_socket = socket(Aludel.Web.SuiteLive.Show, :read_only)
+
+      assert {:cont, ^new_suite_socket} =
+               Authentication.authorize_event("add_test_case", %{}, new_suite_socket)
+
+      assert {:halt, _socket} =
+               Authentication.authorize_event("add_test_case", %{}, existing_suite_socket)
+    end
+
+    test "allows all events for full access" do
+      socket = socket(Aludel.Web.ProviderLive.Index, :all)
+
+      assert {:cont, ^socket} = Authentication.authorize_event("delete", %{}, socket)
+      assert {:cont, ^socket} = Authentication.authorize_event("future_event", %{}, socket)
+    end
+
+    test "denies unknown events and invalid access values" do
+      read_only_socket = socket(Aludel.Web.DashboardLive, :read_only)
+      invalid_socket = socket(Aludel.Web.DashboardLive, :unexpected)
+
+      assert {:halt, _socket} =
+               Authentication.authorize_event("future_event", %{}, read_only_socket)
+
+      assert {:halt, _socket} =
+               Authentication.authorize_event("toggle_cost_view", %{}, invalid_socket)
+    end
+  end
+
+  defp socket(view, access) do
+    %Phoenix.LiveView.Socket{
+      view: view,
+      assigns: %{__changed__: %{}, access: access, flash: %{}},
+      private: %{live_temp: %{}}
+    }
+  end
 end
