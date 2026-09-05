@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compare standalone Basic Authentication credentials with Plug's constant-time verifier
 - Enforce resolver read-only decisions server-side for all dashboard mutation and model-request events
 - Render persisted prompt tags as text instead of reparsing them as HTML
+- Isolate PDF conversion in private workspaces and process groups, with bounded input, output, diagnostics, execution time, and ImageMagick resources
 
 ## [0.6.1] - 2026-09-04
 
