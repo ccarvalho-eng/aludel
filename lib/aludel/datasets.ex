@@ -199,8 +199,16 @@ defmodule Aludel.Datasets do
     end
   end
 
-  defp entry_position(attrs, default) do
-    Map.get(attrs, :position) || Map.get(attrs, "position") || default
+  defp entry_position(%{position: position}, _default) when position not in [nil, false] do
+    position
+  end
+
+  defp entry_position(%{"position" => position}, _default) when position not in [nil, false] do
+    position
+  end
+
+  defp entry_position(_attrs, default) do
+    default
   end
 
   defp repo do

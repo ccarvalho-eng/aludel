@@ -7,6 +7,7 @@ defmodule Aludel.Providers.Provider do
   import Ecto.Changeset
 
   alias Aludel.Providers.ConfigPolicy
+  alias Aludel.Providers.Pricing
   alias Ecto.Changeset
 
   @type t :: %__MODULE__{}
@@ -72,8 +73,7 @@ defmodule Aludel.Providers.Provider do
           [pricing: "must be a map"]
 
         true ->
-          input = pricing["input"] || pricing[:input]
-          output = pricing["output"] || pricing[:output]
+          %{input: input, output: output} = Pricing.normalize(pricing)
 
           cond do
             not is_number(input) -> [pricing: "must contain a numeric input rate"]

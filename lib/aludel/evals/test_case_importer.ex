@@ -127,9 +127,6 @@ defmodule Aludel.Evals.TestCaseImporter do
            variable_values: %{"input" => input},
            assertions: [assertion_payload]
          }}
-      else
-        {:error, message} ->
-          {:error, message}
       end
     end
   end

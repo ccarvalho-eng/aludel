@@ -59,7 +59,7 @@ defmodule Aludel.Datasets.DatasetEntry do
   end
 
   @spec conversation_kind(t()) :: :single_turn | :multi_turn
-  def conversation_kind(%__MODULE__{messages: messages}) when length(messages) > 1 do
+  def conversation_kind(%__MODULE__{messages: [_, _ | _]}) do
     :multi_turn
   end
 

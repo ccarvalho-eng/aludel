@@ -371,8 +371,8 @@ defmodule Aludel.ProvidersTest do
     test "returns a pricing map with input and output rates for known models" do
       result = Providers.default_pricing(:openai, "gpt-4o")
       assert is_map(result)
-      assert is_number(result[:input] || result["input"])
-      assert is_number(result[:output] || result["output"])
+      assert is_number(result.input)
+      assert is_number(result.output)
     end
 
     test "accepts provider as a binary string" do
