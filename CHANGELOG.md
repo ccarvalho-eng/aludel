@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add validated local, AWS S3, and GCS storage configuration to the standalone release
+- Add context-rich evaluation metric inputs and structured evaluator execution details
+- Add rubric-based model judges with seven versioned built-in templates
+- Add repeated evaluation sampling with all, any, majority, and minimum pass-rate reducers
+- Add immutable suite quality policies for pass rate, evaluator score, cost, latency, and metadata groups
+- Add versioned JSON and YAML file suites, ExUnit evaluation helpers, and console, JSON, JUnit, and GitHub reporters
+- Add curated and generated red-team datasets with bounded generation, explicit review, provenance, and idempotent imports
+- Add dashboard workflows for judge assertions, sampling, quality policies, evaluation reports, and red-team case review
 
 ### Security
 - Remove the Docker Compose PostgreSQL host port and require an operator-supplied database password
@@ -21,11 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reject provider credentials in persisted configuration, remove legacy credential keys, and sanitize runtime and callback boundaries
 
 ### Fixed
+- Prevent a white-theme flash during dark-mode LiveView navigation
 - Move curated Unreleased entries into the versioned changelog section during release preparation
 - Make Hex release reruns recover interrupted GitHub releases and documentation publication safely
 - Prevent overlapping suite-result retries from silently replacing a newer retry
 
 ### Changed
+- Remove the storage compile dependency cycle and route document persistence through the public storage facade
 - Add repeatable quality gates for high-signal code smells, compile cycles, duplicate code, documentation coverage, dependency advisories, and static analysis
 - Normalize provider pricing at its boundary and replace redundant control flow, generated documentation text, and full-list length checks with idiomatic Elixir
 - Document the dataset, storage, and execution APIs and raise the enforced documentation coverage floor
