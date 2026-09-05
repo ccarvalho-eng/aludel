@@ -256,13 +256,25 @@ Basic Authentication credentials require TLS in production. When a reverse proxy
 
 ## Docker Compose
 
-From the repository root, configure `.env` from `.env.example`, then start the database and release:
+From the repository root, copy `.env.example` to `.env`. Generate a strong database password with `openssl rand -hex 32`, paste it into `POSTGRES_PASSWORD`, configure the remaining required values, then start the database and release:
 
 ```bash
 docker compose up -d
 ```
 
-The web container waits for PostgreSQL, runs all migrations, and starts the standalone dashboard on the configured port.
+Compose rejects a missing or blank database password before startup. PostgreSQL is reachable only by services on the Compose network; it does not publish a host port. The web container receives separate database fields, waits for PostgreSQL, runs all migrations, and starts the standalone dashboard on the configured port.
+
+For standalone production outside Compose, configure `DATABASE_URL` instead. Existing URL-based deployments remain supported.
+
+### Upgrading an existing Compose database
+
+PostgreSQL applies `POSTGRES_PASSWORD` only when it creates a new data volume. Before switching an existing Aludel Compose deployment to this version, rotate the existing `postgres` role password while the old stack is running:
+
+```bash
+docker compose exec db psql -U postgres -d aludel_dash
+```
+
+At the `psql` prompt, run `\password postgres`, enter a newly generated password twice, then run `\q`. Set that same value as `POSTGRES_PASSWORD` in the new `.env` before starting the updated stack. This interactive flow keeps the password out of shell history. Do not delete the `pgdata` volume during the upgrade because it contains the existing Aludel data.
 
 ## Demo catalog
 

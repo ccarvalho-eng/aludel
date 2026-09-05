@@ -483,6 +483,8 @@ export READ_ONLY=true
 
 Production startup rejects missing, partial, or blank credentials. Local development remains unauthenticated and binds only to loopback. Serve production Basic Authentication over TLS; if a reverse proxy terminates TLS, preserve the `Authorization` header and do not expose the backend port directly.
 
+Docker Compose deployments also require a generated `POSTGRES_PASSWORD`. The database stays private to the Compose network and the web release receives separate connection fields, so passwords containing URI-reserved characters work without encoding. Existing Compose volumes need a one-time password rotation before upgrade; see the [embedding and deployment guide](https://hexdocs.pm/aludel/embedding.html#upgrading-an-existing-compose-database).
+
 To smoke-test callback mode in the standalone app, configure a local executor module in `standalone/lib/aludel_dash.ex` or another module loaded by the standalone app, then add:
 
 ```elixir
