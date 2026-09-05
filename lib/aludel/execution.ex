@@ -36,6 +36,13 @@ defmodule Aludel.Execution do
           artifacts: map()
         }
 
+  @doc """
+  Executes one provider request through the configured execution mode.
+
+  Native mode renders the prompt and calls the configured provider. Callback
+  mode sends a sanitized input map to the host application's executor. Expected
+  failures return `{:error, reason}`.
+  """
   @spec execute(request()) :: {:ok, result()} | {:error, term()}
   def execute(
         %{
@@ -52,6 +59,14 @@ defmodule Aludel.Execution do
     end
   end
 
+  @doc """
+  Executes a provider request while retaining diagnostic artifacts on failure.
+
+  Documents are loaded concurrently before dispatch. Validation, storage,
+  configuration, provider, and callback failures return
+  `{:error, reason, artifacts}` so callers can persist the attempted input and
+  failure context.
+  """
   @spec execute_with_artifacts(request()) ::
           {:ok, result()} | {:error, term(), map()}
   def execute_with_artifacts(

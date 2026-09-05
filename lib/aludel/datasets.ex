@@ -9,6 +9,9 @@ defmodule Aludel.Datasets do
   alias Aludel.Evals.{Suite, TestCase}
   alias Ecto.Changeset
 
+  @doc """
+  Lists datasets alphabetically by name.
+  """
   @spec list_datasets() :: [Dataset.t()]
   def list_datasets do
     Dataset
@@ -16,11 +19,19 @@ defmodule Aludel.Datasets do
     |> repo().all()
   end
 
+  @doc """
+  Fetches a dataset by ID and raises `Ecto.NoResultsError` when it does not exist.
+  """
   @spec get_dataset!(binary()) :: Dataset.t()
   def get_dataset!(id) do
     repo().get!(Dataset, id)
   end
 
+  @doc """
+  Fetches a dataset by ID.
+
+  Returns `nil` for an invalid UUID or a dataset that does not exist.
+  """
   @spec get_dataset(binary()) :: Dataset.t() | nil
   def get_dataset(id) do
     case Ecto.UUID.cast(id) do
@@ -29,6 +40,12 @@ defmodule Aludel.Datasets do
     end
   end
 
+  @doc """
+  Lists a dataset's entries in stable position and insertion order.
+
+  Pass `metadata: %{...}` to retain entries whose JSON metadata contains every
+  supplied key and value.
+  """
   @spec list_entries(Dataset.t(), keyword()) :: [DatasetEntry.t()]
   def list_entries(%Dataset{} = dataset, opts \\ []) do
     DatasetEntry
@@ -38,6 +55,11 @@ defmodule Aludel.Datasets do
     |> repo().all()
   end
 
+  @doc """
+  Fetches a dataset with its entries preloaded in stable order.
+
+  Raises `Ecto.NoResultsError` when the dataset does not exist.
+  """
   @spec get_dataset_with_entries!(binary()) :: Dataset.t()
   def get_dataset_with_entries!(id) do
     entries = from entry in DatasetEntry, order_by: [asc: entry.position, asc: entry.inserted_at]
@@ -47,6 +69,12 @@ defmodule Aludel.Datasets do
     |> repo().preload(entries: entries)
   end
 
+  @doc """
+  Fetches an entry by ID within a dataset.
+
+  Returns `nil` for an invalid UUID, a missing entry, or an entry owned by a
+  different dataset.
+  """
   @spec get_entry(Dataset.t(), binary()) :: DatasetEntry.t() | nil
   def get_entry(%Dataset{} = dataset, id) do
     case Ecto.UUID.cast(id) do
@@ -60,6 +88,9 @@ defmodule Aludel.Datasets do
     end
   end
 
+  @doc """
+  Creates a reusable dataset from the supplied attributes.
+  """
   @spec create_dataset(map()) :: {:ok, Dataset.t()} | {:error, Changeset.t()}
   def create_dataset(attrs) do
     %Dataset{}
@@ -67,6 +98,9 @@ defmodule Aludel.Datasets do
     |> repo().insert()
   end
 
+  @doc """
+  Updates a dataset's name, description, or metadata.
+  """
   @spec update_dataset(Dataset.t(), map()) :: {:ok, Dataset.t()} | {:error, Changeset.t()}
   def update_dataset(%Dataset{} = dataset, attrs) do
     dataset
@@ -74,16 +108,30 @@ defmodule Aludel.Datasets do
     |> repo().update()
   end
 
+  @doc """
+  Deletes a dataset.
+
+  Associated entries are removed according to the repository constraint.
+  """
   @spec delete_dataset(Dataset.t()) :: {:ok, Dataset.t()} | {:error, Changeset.t()}
   def delete_dataset(%Dataset{} = dataset) do
     repo().delete(dataset)
   end
 
+  @doc """
+  Returns a dataset changeset without persisting it.
+  """
   @spec change_dataset(Dataset.t(), map()) :: Changeset.t()
   def change_dataset(%Dataset{} = dataset, attrs \\ %{}) do
     Dataset.changeset(dataset, attrs)
   end
 
+  @doc """
+  Creates an ordered entry in a dataset.
+
+  When no position is supplied, the entry is appended atomically. Concurrent
+  inserts serialize on the dataset row so they cannot claim the same position.
+  """
   @spec create_entry(Dataset.t(), map()) ::
           {:ok, DatasetEntry.t()} | {:error, Changeset.t()}
   def create_entry(%Dataset{} = dataset, attrs) do
@@ -101,6 +149,11 @@ defmodule Aludel.Datasets do
     end)
   end
 
+  @doc """
+  Updates an entry while preserving its dataset ownership.
+
+  Any `dataset_id` attribute is discarded.
+  """
   @spec update_entry(DatasetEntry.t(), map()) ::
           {:ok, DatasetEntry.t()} | {:error, Changeset.t()}
   def update_entry(%DatasetEntry{} = entry, attrs) do
@@ -109,17 +162,29 @@ defmodule Aludel.Datasets do
     |> repo().update()
   end
 
+  @doc """
+  Deletes a dataset entry.
+  """
   @spec delete_entry(DatasetEntry.t()) ::
           {:ok, DatasetEntry.t()} | {:error, Changeset.t()}
   def delete_entry(%DatasetEntry{} = entry) do
     repo().delete(entry)
   end
 
+  @doc """
+  Returns an entry changeset without persisting it.
+  """
   @spec change_entry(DatasetEntry.t(), map()) :: Changeset.t()
   def change_entry(%DatasetEntry{} = entry, attrs \\ %{}) do
     DatasetEntry.changeset(entry, attrs)
   end
 
+  @doc """
+  Copies entries from a dataset into an evaluation suite.
+
+  Entries already linked to the suite through `source_dataset_entry_id` are
+  skipped. The operation is transactional and safe to repeat.
+  """
   @spec populate_suite(Dataset.t(), Suite.t()) ::
           {:ok, [TestCase.t()]} | {:error, term()}
   def populate_suite(%Dataset{} = dataset, %Suite{} = suite) do
