@@ -108,6 +108,12 @@ mix phx.server
 - Ensure all tests pass before submitting: `mix test`
 - Maintain or improve code coverage
 
+## Maintainer Releases
+
+Keep user-facing release notes under `Unreleased` in `CHANGELOG.md`, then run the **Release Hex Package** workflow with the next SemVer version without a leading `v`. The workflow serializes releases, moves those curated notes into the new version, verifies the package, creates the version commit and annotated tag, publishes the GitHub release, and publishes the Hex package and documentation.
+
+Rerun the same version after an interruption. A tag-only state recreates the GitHub release from the versioned changelog, a GitHub release without a Hex package resumes package publication, and an existing Hex package republishes its documentation. The workflow refuses GitHub or Hex release state that has no matching repository tag.
+
 ## Questions or Ideas?
 
 - **💬 [Discussions](https://github.com/ccarvalho-eng/aludel/discussions)** — Ask questions, share ideas, or discuss use cases

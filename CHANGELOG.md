@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bound regular expression assertion size, matching work, recursion depth, and wall-clock time
 - Reject provider credentials in persisted configuration, remove legacy credential keys, and sanitize runtime and callback boundaries
 
+### Fixed
+- Move curated Unreleased entries into the versioned changelog section during release preparation
+- Make Hex release reruns recover interrupted GitHub releases and documentation publication safely
+
 ## [0.6.1] - 2026-09-04
 
 ### Security
