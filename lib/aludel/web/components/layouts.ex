@@ -34,6 +34,7 @@ defmodule Aludel.Web.Layouts do
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
   attr :current_path, :string, default: "", doc: "the current path for active link detection"
+  attr :access, :atom, default: :all, values: [:all, :read_only]
 
   slot :inner_block, required: true
 
@@ -66,6 +67,14 @@ defmodule Aludel.Web.Layouts do
 
     <main class="aludel-main">
       <div class="aludel-container">
+        <div
+          :if={@access == :read_only}
+          id="read-only-banner"
+          role="status"
+          class="mb-6 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-base-content"
+        >
+          Read-only mode is active. Changes and model requests are disabled.
+        </div>
         {render_slot(@inner_block)}
       </div>
     </main>

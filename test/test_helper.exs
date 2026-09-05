@@ -27,6 +27,25 @@ Application.put_env(:aludel, Aludel.Web.Endpoint,
 )
 
 # Define test router
+defmodule Aludel.Web.Test.ReadOnlyResolver do
+  @behaviour Aludel.Web.Resolver
+
+  @impl true
+  def resolve_user(_conn) do
+    %{id: "read-only-user"}
+  end
+
+  @impl true
+  def resolve_access(_user) do
+    :read_only
+  end
+
+  @impl true
+  def resolve_refresh(_user) do
+    5
+  end
+end
+
 defmodule Aludel.Web.Test.Router do
   use Phoenix.Router
 
@@ -40,6 +59,15 @@ defmodule Aludel.Web.Test.Router do
   scope "/" do
     pipe_through :browser
     aludel_dashboard("/")
+  end
+
+  scope "/read-only" do
+    pipe_through :browser
+
+    aludel_dashboard("/",
+      as: :read_only_aludel,
+      resolver: Aludel.Web.Test.ReadOnlyResolver
+    )
   end
 end
 
