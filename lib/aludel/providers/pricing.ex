@@ -57,6 +57,21 @@ defmodule Aludel.Providers.Pricing do
   end
 
   @doc """
+  Normalizes string-keyed or atom-keyed pricing into the internal atom-keyed shape.
+
+  String keys take precedence because persisted JSON maps use strings. Missing or
+  false string values fall back to their atom-keyed counterparts for compatibility
+  with programmatically constructed providers.
+  """
+  @spec normalize(map()) :: %{input: term(), output: term()}
+  def normalize(pricing) when is_map(pricing) do
+    %{
+      input: pricing_value(pricing, :input),
+      output: pricing_value(pricing, :output)
+    }
+  end
+
+  @doc """
   Formats pricing for human-readable display.
 
   ## Examples
@@ -86,6 +101,13 @@ defmodule Aludel.Providers.Pricing do
     case :persistent_term.get(@persistent_term_key, nil) do
       nil -> build_and_cache_index()
       index -> index
+    end
+  end
+
+  defp pricing_value(pricing, key) do
+    case Map.fetch(pricing, Atom.to_string(key)) do
+      {:ok, value} when value not in [nil, false] -> value
+      _other -> Map.get(pricing, key)
     end
   end
 

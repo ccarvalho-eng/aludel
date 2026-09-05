@@ -75,6 +75,28 @@ defmodule Aludel.Providers.PricingTest do
     end
   end
 
+  describe "normalize/1" do
+    test "normalizes atom and string keys" do
+      assert Pricing.normalize(%{input: 1.0, output: 2.0}) == %{input: 1.0, output: 2.0}
+
+      assert Pricing.normalize(%{"input" => 3.0, "output" => 4.0}) == %{
+               input: 3.0,
+               output: 4.0
+             }
+    end
+
+    test "prefers persisted string keys and falls back from empty values" do
+      pricing = %{
+        "input" => 3.0,
+        "output" => nil,
+        input: 1.0,
+        output: 2.0
+      }
+
+      assert Pricing.normalize(pricing) == %{input: 3.0, output: 2.0}
+    end
+  end
+
   describe "format_pricing/1" do
     test "formats normal pricing" do
       assert Pricing.format_pricing(%{input: 3.0, output: 15.0}) ==

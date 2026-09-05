@@ -1,7 +1,6 @@
 defmodule Aludel.Web.Layouts do
   @moduledoc """
-  This module holds layouts and related functionality
-  used by your application.
+  Shared layouts for the embedded and standalone Aludel interfaces.
   """
   use Aludel.Web, :html
 

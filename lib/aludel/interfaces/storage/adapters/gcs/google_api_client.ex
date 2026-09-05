@@ -51,8 +51,6 @@ defmodule Aludel.Interfaces.Storage.Adapters.GCS.GoogleApiClient do
          {:ok, _response} <-
            Objects.storage_objects_delete(connection, bucket, key, request_options(config)) do
       :ok
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 

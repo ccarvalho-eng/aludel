@@ -1,17 +1,13 @@
 defmodule Aludel.DataCase do
   @moduledoc """
-  This module defines the setup for tests requiring
-  access to the application's data layer.
+  Database-backed ExUnit case with shared data-layer helpers.
 
-  You may define functions here to be used as helpers in
-  your tests.
+  Tests receive Ecto query and changeset imports, project fixtures, and model
+  stubs. Each test owns an SQL sandbox connection and installs the default HTTP
+  client stub, isolating persisted data and external model requests.
 
-  Finally, if the test case interacts with the database,
-  we enable the SQL sandbox, so changes done to the database
-  are reverted at the end of every test. If you are using
-  PostgreSQL, you can even run database tests asynchronously
-  by setting `use Aludel.DataCase, async: true`, although
-  this option is not recommended for other databases.
+  PostgreSQL-backed tests can use `use Aludel.DataCase, async: true`. Other
+  database adapters may require synchronous execution.
   """
 
   use ExUnit.CaseTemplate

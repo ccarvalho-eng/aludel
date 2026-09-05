@@ -226,8 +226,7 @@ defmodule Aludel.Providers do
 
     {input, output} =
       if has_custom do
-        i = pricing["input"] || pricing[:input] || ""
-        o = pricing["output"] || pricing[:output] || ""
+        %{input: i, output: o} = Pricing.normalize(pricing)
         {to_string(i), to_string(o)}
       else
         {"", ""}
