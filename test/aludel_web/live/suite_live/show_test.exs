@@ -1137,6 +1137,154 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
   end
 
   describe "suite execution" do
+    test "configures repeated sampling and minimum pass-rate reducers", %{conn: conn} do
+      prompt = prompt_fixture_with_version()
+      suite = suite_fixture(%{prompt_id: prompt.id})
+      provider = provider_fixture()
+      other_provider = provider_fixture(%{name: "Second provider"})
+      version = List.first(prompt.versions)
+
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      assert has_element?(view, "#run_suite_samples")
+      assert has_element?(view, "#run_suite_reducer-select[phx-hook='CustomSelect']")
+      refute has_element?(view, "#run_suite_minimum_pass_rate")
+
+      view
+      |> form("#run-suite-form",
+        run_suite: %{
+          version_id: version.id,
+          provider_id: provider.id,
+          samples: "5",
+          reducer: "minimum_pass_rate"
+        }
+      )
+      |> render_change()
+
+      assert has_element?(view, "#run_suite_minimum_pass_rate")
+
+      view
+      |> form("#run-suite-form",
+        run_suite: %{
+          version_id: version.id,
+          provider_id: provider.id,
+          samples: "5",
+          reducer: "minimum_pass_rate",
+          minimum_pass_rate: "80"
+        }
+      )
+      |> render_change()
+
+      assert has_element?(view, "#run_suite_minimum_pass_rate[value='80']")
+      assert has_element?(view, "#sampling-request-count", "5 requests per test case")
+
+      render_click(view, "select_provider", %{"provider_id" => other_provider.id})
+
+      assert has_element?(view, "#run_suite_samples[value='5']")
+      assert has_element?(view, "#run_suite_minimum_pass_rate[value='80']")
+    end
+
+    test "rejects invalid repeated sampling before starting execution", %{conn: conn} do
+      prompt = prompt_fixture_with_version()
+      suite = suite_fixture(%{prompt_id: prompt.id})
+      provider = provider_fixture()
+      version = List.first(prompt.versions)
+
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      view
+      |> form("#run-suite-form",
+        run_suite: %{
+          version_id: version.id,
+          provider_id: provider.id,
+          samples: "21",
+          reducer: "all"
+        }
+      )
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error", "Samples must be an integer between 1 and 20")
+      refute has_element?(view, "#run-suite-btn[disabled]")
+      assert Evals.list_suite_runs_for_suite_with_associations(suite.id) == []
+
+      render_hook(view, "run_suite", %{
+        "run_suite" => %{
+          "version_id" => version.id,
+          "provider_id" => provider.id,
+          "samples" => "3",
+          "reducer" => "unknown"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "#flash-error",
+               "Reducer must be all, any, majority, or minimum pass rate"
+             )
+
+      assert Evals.list_suite_runs_for_suite_with_associations(suite.id) == []
+    end
+
+    test "runs and inspects every sampled attempt", %{conn: conn} do
+      Mox.set_mox_global()
+      Aludel.DataCase.setup_mox_stub()
+
+      prompt = prompt_fixture_with_version(%{template: "Return a greeting"})
+      suite = suite_fixture(%{prompt_id: prompt.id})
+      provider = provider_fixture()
+      version = List.first(prompt.versions)
+
+      test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          assertions: [%{"type" => "contains", "value" => "Test response"}]
+        })
+
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      view
+      |> form("#run-suite-form",
+        run_suite: %{
+          version_id: version.id,
+          provider_id: provider.id,
+          samples: "3",
+          reducer: "minimum_pass_rate"
+        }
+      )
+      |> render_change()
+
+      view
+      |> form("#run-suite-form",
+        run_suite: %{
+          version_id: version.id,
+          provider_id: provider.id,
+          samples: "3",
+          reducer: "minimum_pass_rate",
+          minimum_pass_rate: "80"
+        }
+      )
+      |> render_submit()
+
+      assert_eventually(fn ->
+        has_element?(view, "#flash-info", "Suite executed successfully")
+      end)
+
+      [suite_run] = Evals.list_suite_runs_for_suite_with_associations(suite.id)
+      [result] = suite_run.results
+
+      assert result["sampling"]["samples"] == 3
+      assert result["sampling"]["reducer"] == "minimum_pass_rate"
+      assert result["sampling"]["minimum_pass_rate"] == 0.8
+      assert Enum.map(result["attempts"], & &1["attempt"]) == [1, 2, 3]
+
+      sampling_id = "#suite-result-sampling-#{suite_run.id}-#{test_case.id}"
+      assert has_element?(view, sampling_id, "3 of 3 attempts passed")
+      assert has_element?(view, sampling_id, "At least 80.0%")
+      assert has_element?(view, sampling_id, "100.0% pass rate")
+      assert has_element?(view, "#suite-result-attempt-#{suite_run.id}-#{test_case.id}-1")
+      assert has_element?(view, "#suite-result-attempt-#{suite_run.id}-#{test_case.id}-3")
+    end
+
     test "recovers when the background execution task fails", %{conn: conn} do
       prompt = prompt_fixture_with_version()
       suite = suite_fixture(%{prompt_id: prompt.id})

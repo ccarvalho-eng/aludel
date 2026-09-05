@@ -13,6 +13,7 @@ defmodule Aludel.Web.SuiteLive.Show do
   alias Aludel.Evals.AssertionParser
   alias Aludel.Evals.DocumentIngestion
   alias Aludel.Evals.JudgeCatalog
+  alias Aludel.Evals.Sampling
   alias Aludel.Evals.TestCaseEditor
   alias Aludel.Evals.TestCaseImporter
   alias Aludel.Executor
@@ -141,7 +142,11 @@ defmodule Aludel.Web.SuiteLive.Show do
          |> assign(:page_title, suite.name)
          |> assign(
            :run_suite_form,
-           build_run_suite_form(default_version_id, socket.assigns.selected_provider_id)
+           build_run_suite_form(
+             default_version_id,
+             socket.assigns.selected_provider_id,
+             socket.assigns.run_suite_form.params
+           )
          )
          |> assign(:editing_suite_metadata, false)
          |> put_flash(:info, "Suite updated successfully")}
@@ -162,7 +167,11 @@ defmodule Aludel.Web.SuiteLive.Show do
      )
      |> assign(
        :run_suite_form,
-       build_run_suite_form(version_id, socket.assigns.selected_provider_id)
+       build_run_suite_form(
+         version_id,
+         socket.assigns.selected_provider_id,
+         socket.assigns.run_suite_form.params
+       )
      )}
   end
 
@@ -173,7 +182,11 @@ defmodule Aludel.Web.SuiteLive.Show do
      |> assign(:selected_provider_id, provider_id)
      |> assign(
        :run_suite_form,
-       build_run_suite_form(socket.assigns.selected_version_id, provider_id)
+       build_run_suite_form(
+         socket.assigns.selected_version_id,
+         provider_id,
+         socket.assigns.run_suite_form.params
+       )
      )}
   end
 
@@ -190,7 +203,10 @@ defmodule Aludel.Web.SuiteLive.Show do
        :selected_prompt_version,
        selected_prompt_version(socket.assigns.prompt, version_id)
      )
-     |> assign(:run_suite_form, to_form(run_suite_params, as: :run_suite))}
+     |> assign(
+       :run_suite_form,
+       build_run_suite_form(version_id, provider_id, run_suite_params)
+     )}
   end
 
   @impl Phoenix.LiveView
@@ -488,7 +504,20 @@ defmodule Aludel.Web.SuiteLive.Show do
     else
       version_id = Map.get(run_suite_params, "version_id", socket.assigns.selected_version_id)
       provider_id = Map.get(run_suite_params, "provider_id", socket.assigns.selected_provider_id)
-      {:noreply, start_suite_execution(socket, version_id, provider_id)}
+
+      case sampling_options(run_suite_params) do
+        {:ok, opts} ->
+          {:noreply, start_suite_execution(socket, version_id, provider_id, opts)}
+
+        {:error, message} ->
+          {:noreply,
+           socket
+           |> assign(
+             :run_suite_form,
+             build_run_suite_form(version_id, provider_id, run_suite_params)
+           )
+           |> put_flash(:error, message)}
+      end
     end
   end
 
@@ -651,14 +680,71 @@ defmodule Aludel.Web.SuiteLive.Show do
     end
   end
 
-  defp build_run_suite_form(version_id, provider_id) do
-    to_form(
+  defp build_run_suite_form(version_id, provider_id, params \\ %{}) do
+    params =
       %{
+        "samples" => "1",
+        "reducer" => "all",
+        "minimum_pass_rate" => "80"
+      }
+      |> Map.merge(Map.take(params, ~w(samples reducer minimum_pass_rate)))
+      |> Map.merge(%{
         "version_id" => version_id,
         "provider_id" => provider_id
-      },
-      as: :run_suite
-    )
+      })
+
+    to_form(params, as: :run_suite)
+  end
+
+  defp sampling_options(params) do
+    with {:ok, samples} <- parse_samples(params["samples"]),
+         {:ok, reducer} <- parse_reducer(params["reducer"], params["minimum_pass_rate"]),
+         {:ok, _sampling} <- Sampling.new(samples: samples, reducer: reducer) do
+      {:ok, [samples: samples, reducer: reducer]}
+    else
+      {:error, {:invalid_sampling, message}} ->
+        {:error, "Invalid sampling configuration: #{message}"}
+
+      {:error, message} ->
+        {:error, message}
+    end
+  end
+
+  defp parse_samples(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {samples, ""} when samples >= 1 and samples <= 20 -> {:ok, samples}
+      _other -> {:error, "Samples must be an integer between 1 and 20"}
+    end
+  end
+
+  defp parse_samples(_value) do
+    {:error, "Samples must be an integer between 1 and 20"}
+  end
+
+  defp parse_reducer(reducer, _minimum) when reducer in ~w(all any majority) do
+    {:ok, String.to_existing_atom(reducer)}
+  end
+
+  defp parse_reducer("minimum_pass_rate", minimum) do
+    case parse_percentage(minimum) do
+      {:ok, percentage} -> {:ok, {:minimum_pass_rate, percentage / 100}}
+      :error -> {:error, "Minimum pass rate must be a number between 0 and 100"}
+    end
+  end
+
+  defp parse_reducer(_reducer, _minimum) do
+    {:error, "Reducer must be all, any, majority, or minimum pass rate"}
+  end
+
+  defp parse_percentage(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {percentage, ""} when percentage >= 0 and percentage <= 100 -> {:ok, percentage}
+      _other -> :error
+    end
+  end
+
+  defp parse_percentage(_value) do
+    :error
   end
 
   defp selected_prompt_version(%{versions: versions}, version_id) when is_list(versions) do
@@ -747,6 +833,76 @@ defmodule Aludel.Web.SuiteLive.Show do
   defp format_score(score) when is_integer(score), do: format_score(score / 1)
   defp format_score(score) when is_float(score), do: :erlang.float_to_binary(score, decimals: 1)
   defp format_score(_score), do: nil
+
+  defp sampled_result?(%{
+         "sampling" => %{"samples" => samples},
+         "attempts" => attempts
+       })
+       when is_integer(samples) and samples > 1 and is_list(attempts) do
+    true
+  end
+
+  defp sampled_result?(_result) do
+    false
+  end
+
+  defp sampling_pass_summary(%{
+         "samples" => samples,
+         "passed_attempts" => passed_attempts
+       }) do
+    "#{passed_attempts} of #{samples} attempts passed"
+  end
+
+  defp sampling_pass_summary(_sampling) do
+    "Attempt summary unavailable"
+  end
+
+  defp sampling_reducer_label(%{
+         "reducer" => "minimum_pass_rate",
+         "minimum_pass_rate" => minimum_pass_rate
+       }) do
+    "At least #{format_percentage(minimum_pass_rate)}"
+  end
+
+  defp sampling_reducer_label(%{"reducer" => "all"}) do
+    "All attempts"
+  end
+
+  defp sampling_reducer_label(%{"reducer" => "any"}) do
+    "Any attempt"
+  end
+
+  defp sampling_reducer_label(%{"reducer" => "majority"}) do
+    "Strict majority"
+  end
+
+  defp sampling_reducer_label(_sampling) do
+    "Unknown pass rule"
+  end
+
+  defp sampling_pass_rate(%{"pass_rate" => pass_rate}) do
+    format_percentage(pass_rate)
+  end
+
+  defp sampling_pass_rate(_sampling) do
+    "N/A"
+  end
+
+  defp sampling_request_summary("1") do
+    "1 request"
+  end
+
+  defp sampling_request_summary(samples) do
+    "#{samples} requests"
+  end
+
+  defp format_percentage(rate) when is_number(rate) do
+    format_score(rate * 100) <> "%"
+  end
+
+  defp format_percentage(_rate) do
+    "N/A"
+  end
 
   defp display_value(nil), do: "null"
   defp display_value(value) when is_binary(value), do: value
@@ -987,12 +1143,13 @@ defmodule Aludel.Web.SuiteLive.Show do
     end
   end
 
-  defp start_suite_execution(socket, version_id, provider_id) do
+  defp start_suite_execution(socket, version_id, provider_id, opts) do
     case Evals.launch_suite_execution(
            self(),
            socket.assigns.suite.id,
            version_id,
-           provider_id
+           provider_id,
+           opts
          ) do
       {:ok, monitor_ref} ->
         socket

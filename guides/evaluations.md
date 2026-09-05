@@ -193,6 +193,8 @@ Evaluator status is one of `completed`, `error`, or `unavailable`. Failures use 
 
 Run each test case more than once when a single model response is not reliable enough to make a decision:
 
+From a suite page in the dashboard, choose **Attempts per test case** and a **Pass rule** before selecting **Run Suite**. The minimum pass-rate control uses a percentage from 0 through 100; the API form below uses the equivalent decimal rate from `0.0` through `1.0`.
+
 ```elixir
 {:ok, suite_run} =
   Aludel.Evals.execute_suite(suite, prompt_version, provider,
@@ -204,6 +206,8 @@ Run each test case more than once when a single model response is not reliable e
 `samples` accepts `1` through `20`. Reducers can require `:all`, `:any`, a strict `:majority`, or a minimum rate such as `{:minimum_pass_rate, 0.8}`. Invalid sampling configuration returns an error before any model request is made.
 
 Sampled results retain every ordered attempt and record passed and failed counts, pass rate, reducer configuration, and the representative attempt. Token usage, cost, and latency are summed across attempts; available scores are averaged. Retrying a sampled test case reruns the complete persisted sampling configuration and replaces the previous aggregate.
+
+The dashboard renders the aggregate evidence in each sampled test case result and provides an expandable list of attempt outcomes, scores, and outputs. The same persisted result shape is available through exports and reporters. For headless execution, put the sampling settings in a JSON or YAML suite file and run it with `mix aludel.eval`; ExUnit and the Elixir API accept the keyword options directly.
 
 ### Enforce a versioned quality policy
 

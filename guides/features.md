@@ -81,6 +81,8 @@ Built-in metrics are `contains`, `not_contains`, `regex`, `exact_match`, `json_f
 
 The visual assertion editor configures either a built-in judge template or a custom rubric, a separate judge provider, a 0–100 pass threshold, an optional reference answer, and optional grounding context. The raw JSON editor exposes the same assertion contract. Once saved, judge assertions run through the dashboard, Mix CLI, ExUnit, file-based suites, and the Elixir API.
 
+The suite run panel configures one to 20 attempts per test case and all, any, strict-majority, or minimum pass-rate reduction. Sampled results expose the aggregate pass evidence and an expandable ordered attempt history. File-based suites provide the same settings to the Mix CLI, while ExUnit and the Elixir API accept them as execution options.
+
 ## Reusable datasets
 
 Datasets are ordered collections of evaluation examples that can be reused by multiple suites. A dataset entry can contain:
