@@ -5,6 +5,21 @@ if System.get_env("PHX_SERVER") do
 end
 
 if config_env() == :prod do
+  basic_auth =
+    case AludelDash.BasicAuth.validate_credentials(
+           System.get_env("BASIC_AUTH_USER"),
+           System.get_env("BASIC_AUTH_PASS")
+         ) do
+      {:ok, credentials} ->
+        credentials
+
+      {:error, :invalid_credentials} ->
+        raise """
+        BASIC_AUTH_USER and BASIC_AUTH_PASS must both be set to nonblank values.
+        BASIC_AUTH_USER cannot contain a colon.
+        """
+    end
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
@@ -30,8 +45,7 @@ if config_env() == :prod do
     secret_key_base: secret_key_base
 
   config :aludel_dash,
-    basic_auth_user: System.get_env("BASIC_AUTH_USER"),
-    basic_auth_pass: System.get_env("BASIC_AUTH_PASS"),
+    basic_auth: basic_auth,
     read_only: System.get_env("READ_ONLY") == "true"
 
   config :aludel, :llm,

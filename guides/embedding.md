@@ -242,15 +242,17 @@ mix ecto.migrate
 mix phx.server
 ```
 
-Optional standalone access controls:
+Standalone production requires Basic Authentication. Generate a strong password and optionally enable read-only access:
 
 ```bash
 export BASIC_AUTH_USER=admin
-export BASIC_AUTH_PASS=change-me
+export BASIC_AUTH_PASS="$(openssl rand -base64 32)"
 export READ_ONLY=true
 ```
 
-Set both Basic Authentication values to enable the challenge. `READ_ONLY=true` keeps the dashboard visible while disabling mutations.
+Production startup rejects missing, partial, or blank credentials. Local development remains unauthenticated and listens only on loopback. `READ_ONLY=true` keeps the dashboard visible while server-side authorization blocks mutations and model requests.
+
+Basic Authentication credentials require TLS in production. When a reverse proxy terminates TLS, preserve the `Authorization` header and keep the backend port private so clients cannot bypass the proxy.
 
 ## Docker Compose
 

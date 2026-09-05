@@ -69,6 +69,10 @@ jobs:
       - name: Run tests with coverage
         run: mix coveralls.json
 
+      - name: Test standalone application
+        working-directory: standalone
+        run: mix deps.get && mix compile --warnings-as-errors && mix test --no-start
+
       # Only upload coverage when the PR can access repository secrets.
       # Dependabot and fork PRs should not fail CI on the upload step.
       - name: Upload coverage to Codecov

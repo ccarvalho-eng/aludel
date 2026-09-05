@@ -13,33 +13,48 @@ end
 defmodule AludelDash.BasicAuth do
   @moduledoc false
 
-  import Plug.Conn
+  @realm "Aludel Dashboard"
 
-  def init(opts), do: opts
+  @spec init(keyword()) :: keyword()
+  def init(opts) do
+    opts
+  end
 
+  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
-    user = Application.get_env(:aludel_dash, :basic_auth_user)
-    pass = Application.get_env(:aludel_dash, :basic_auth_pass)
+    case Application.fetch_env!(:aludel_dash, :basic_auth) do
+      :disabled ->
+        conn
 
-    if user && pass do
-      authenticate(conn, user, pass)
-    else
-      conn
+      credentials when is_list(credentials) ->
+        Plug.BasicAuth.basic_auth(conn, credentials)
+
+      _invalid ->
+        raise ArgumentError, "invalid standalone Basic Authentication configuration"
     end
   end
 
-  defp authenticate(conn, user, pass) do
-    with ["Basic " <> encoded] <- get_req_header(conn, "authorization"),
-         {:ok, decoded} <- Base.decode64(encoded),
-         ^decoded <- "#{user}:#{pass}" do
-      conn
+  @spec validate_credentials(String.t() | nil, String.t() | nil) ::
+          {:ok, keyword()} | {:error, :invalid_credentials}
+  def validate_credentials(username, password)
+      when is_binary(username) and is_binary(password) do
+    if valid_username?(username) and present?(password) do
+      {:ok, username: username, password: password, realm: @realm}
     else
-      _ ->
-        conn
-        |> put_resp_header("www-authenticate", ~s(Basic realm="Aludel Dashboard"))
-        |> send_resp(401, "Unauthorized")
-        |> halt()
+      {:error, :invalid_credentials}
     end
+  end
+
+  def validate_credentials(_username, _password) do
+    {:error, :invalid_credentials}
+  end
+
+  defp valid_username?(username) do
+    present?(username) and not String.contains?(username, ":")
+  end
+
+  defp present?(value) do
+    String.trim(value) != ""
   end
 end
 
