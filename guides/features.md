@@ -100,11 +100,11 @@ Datasets are ordered collections of evaluation examples that can be reused by mu
 
 Dataset pages support create, edit, delete, entry management, and JSON containment filters over metadata. Populating a suite copies entries in order, records source provenance, and skips entries already imported from that dataset.
 
-`Aludel.RedTeam` provides seven versioned adversarial cases covering direct and indirect prompt injection, system prompt leakage, sensitive information disclosure, excessive agency, misinformation, and unsafe assistance. The library API materializes selected cases into a reusable dataset with deterministic canary assertions, optional rubric judges, and category, severity, provenance, checksum, and deduplication metadata. Matching reruns are idempotent; content or judge-configuration drift under the same key fails explicitly. See the [red-team guide](red_team.md).
+`Aludel.RedTeam` provides seven versioned adversarial cases covering direct and indirect prompt injection, system prompt leakage, sensitive information disclosure, excessive agency, misinformation, and unsafe assistance. The dashboard and library API materialize selected cases into a reusable dataset with deterministic canary assertions, optional rubric judges, and category, severity, provenance, checksum, and deduplication metadata. The dashboard catalog exposes every prompt and risk field before selection. Matching reruns are idempotent; content or judge-configuration drift under the same key fails explicitly. See the [red-team guide](red_team.md).
 
 The same API can generate product-specific cases through an Aludel provider. Generation validates a strict response schema, bounds calls and output, reports sanitized partial failures and usage, and returns inert checksummed candidates without database writes or execution. A separate import call requires explicit approved candidate IDs, revalidates the review record, and creates the selected entries atomically with rubric judges and provenance.
 
-Materialized and approved generated entries use the normal dataset workflow in the dashboard. Once they have been copied into a suite, that suite can be executed through the dashboard, `mix aludel.eval`, ExUnit, or `Aludel.Evals`. Catalog browsing, materialization, generated-case review, and approval/import are currently library API features.
+Materialized and approved generated entries use the normal dataset workflow in the dashboard. Once they have been copied into a suite, that suite can be executed through the dashboard, `mix aludel.eval`, ExUnit, or `Aludel.Evals`. Catalog browsing and materialization are dashboard and library API features. Generated-case review and approval/import are currently library API features.
 
 ## Documents and storage
 

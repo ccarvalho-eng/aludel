@@ -12,6 +12,12 @@ defmodule Aludel.Web.DatasetLive.ShowTest do
 
     assert has_element?(view, "#dataset-entries-empty")
 
+    assert has_element?(
+             view,
+             "a[href='/datasets/#{dataset.id}/red-team/catalog']",
+             "Add red-team cases"
+           )
+
     view
     |> form("#dataset-details-form",
       dataset: %{

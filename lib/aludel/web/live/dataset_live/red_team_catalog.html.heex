@@ -1,0 +1,154 @@
+<Layouts.app flash={@flash} current_path={@current_path}>
+  <div class="page-container-wide" style="max-width: 1180px;">
+    <div style="display: flex; justify-content: space-between; align-items: start; gap: 24px; margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--border);">
+      <div>
+        <.link
+          navigate={aludel_path("datasets/#{@dataset.id}")}
+          style="display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;"
+        >
+          <.icon name="hero-arrow-left" class="size-4" /> Back to dataset
+        </.link>
+        <h1 style="margin: 0 0 8px; font-size: 28px;">Curated red-team catalog</h1>
+        <p style="margin: 0; color: var(--text-secondary); line-height: 1.6;">
+          Add versioned adversarial regression cases to <strong>{@dataset.name}</strong>.
+          Catalog prompts are inert until the dataset is used in a suite.
+        </p>
+      </div>
+    </div>
+
+    <.form
+      for={@materialization_form}
+      id="red-team-materialization-form"
+      phx-change="validate_materialization"
+      phx-submit="materialize"
+    >
+      <div style="display: grid; grid-template-columns: minmax(270px, 340px) minmax(0, 1fr); gap: 24px; align-items: start;">
+        <aside class="aludel-card" style="position: sticky; top: 20px;">
+          <h2 style="margin: 0 0 8px; font-size: 18px;">Materialization</h2>
+          <p style="margin: 0 0 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.5;">
+            Every case includes a deterministic canary assertion. A judge is optional.
+          </p>
+
+          <.input
+            field={@materialization_form[:variable]}
+            type="text"
+            label="Prompt variable"
+            required
+            maxlength="200"
+          />
+          <.input
+            field={@materialization_form[:judge_provider_id]}
+            type="select"
+            label="Judge provider (optional)"
+            prompt="Canary assertion only"
+            options={Enum.map(@providers, &{&1.name, &1.id})}
+          />
+          <.input
+            field={@materialization_form[:judge_threshold]}
+            type="number"
+            label="Judge threshold"
+            min="0"
+            max="100"
+            step="0.1"
+            required
+          />
+
+          <div
+            :if={@materialization_errors != []}
+            id="materialization-errors"
+            style="margin: 8px 0 14px; padding: 10px 12px; border-radius: 7px; color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); font-size: 12px;"
+          >
+            <div :for={error <- @materialization_errors}>{error}</div>
+          </div>
+
+          <div
+            :if={@materialization_result}
+            id="materialization-result"
+            style="margin: 8px 0 14px; padding: 10px 12px; border-radius: 7px; color: #059669; background: color-mix(in srgb, #059669 10%, transparent); font-size: 12px;"
+          >
+            {@materialization_result.created} created · {@materialization_result.skipped} already present
+          </div>
+
+          <button
+            type="submit"
+            class="button-primary"
+            phx-disable-with="Adding cases..."
+            style="width: 100%;"
+          >
+            Add selected cases
+          </button>
+
+          <p style="margin: 12px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5;">
+            Repeating the same selection skips exact matches. Existing entries are never updated or deleted.
+          </p>
+        </aside>
+
+        <section id="red-team-catalog">
+          <div style="display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 14px;">
+            <div>
+              <h2 style="margin: 0 0 4px; font-size: 20px;">Cases</h2>
+              <p style="margin: 0; color: var(--text-secondary); font-size: 12px;">
+                {length(@selected_case_ids)} of {length(@cases)} selected
+              </p>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <article
+              :for={template <- @cases}
+              id={"red-team-case-#{template.id}"}
+              data-red-team-case
+              class="aludel-card"
+              style="padding: 16px;"
+            >
+              <div style="display: flex; align-items: start; gap: 12px;">
+                <input
+                  type="checkbox"
+                  name="materialization[case_ids][]"
+                  value={template.id}
+                  checked={template.id in @selected_case_ids}
+                  aria-label={"Select #{template.name}"}
+                  style="margin-top: 4px; width: 16px; height: 16px;"
+                />
+                <div style="min-width: 0; flex: 1;">
+                  <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
+                    <div>
+                      <h3 style="margin: 0 0 6px; font-size: 16px;">{template.name}</h3>
+                      <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px;">
+                        <span style="padding: 3px 7px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary);">
+                          {category_label(template.category)}
+                        </span>
+                        <span style="padding: 3px 7px; border-radius: 999px; background: color-mix(in srgb, #dc2626 10%, transparent); color: #dc2626;">
+                          {template.severity}
+                        </span>
+                        <span style="padding: 3px 7px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary);">
+                          {template.technique}
+                        </span>
+                      </div>
+                    </div>
+                    <span style="font-size: 11px; color: var(--text-muted);">v{template.version}</span>
+                  </div>
+
+                  <div style="margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 12px; color: var(--text-secondary);">
+                    <div><strong>Risk:</strong> {template.risk_reference}</div>
+                    <div><strong>Recommended judge:</strong> {template.judge_template}</div>
+                  </div>
+
+                  <details style="margin-top: 10px;">
+                    <summary style="cursor: pointer; font-size: 12px; font-weight: 600;">
+                      Inspect prompt and assertion
+                    </summary>
+                    <pre style="margin: 10px 0 8px; padding: 12px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5;">{template.prompt}</pre>
+                    <div style="font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere;">
+                      Fails if the response contains canary <code>{template.canary}</code>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </.form>
+  </div>
+</Layouts.app>
