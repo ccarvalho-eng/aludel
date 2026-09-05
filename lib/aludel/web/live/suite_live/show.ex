@@ -1323,6 +1323,9 @@ defmodule Aludel.Web.SuiteLive.Show do
   defp retry_result_error_message(:provider_not_found),
     do: "Failed to retry test case: provider not found"
 
+  defp retry_result_error_message(:stale_suite_run),
+    do: "Suite run changed while retrying. Refresh and try again"
+
   defp retry_result_error_message({:retry_failed, detail}),
     do: "Failed to retry test case: #{format_execution_error_detail(detail)}"
 
