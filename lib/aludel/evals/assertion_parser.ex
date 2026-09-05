@@ -104,6 +104,17 @@ defmodule Aludel.Evals.AssertionParser do
     |> Map.put("assertion_threshold_#{idx}", format_threshold(assertion["threshold"]))
   end
 
+  defp maybe_put_assertion_value(params, idx, %{"type" => "rubric_judge"} = assertion) do
+    params
+    |> Map.put("assertion_rubric_source_#{idx}", rubric_source(assertion))
+    |> Map.put("assertion_template_#{idx}", assertion["template"] || "")
+    |> Map.put("assertion_rubric_#{idx}", assertion["rubric"] || "")
+    |> Map.put("assertion_provider_id_#{idx}", assertion["provider_id"] || "")
+    |> Map.put("assertion_threshold_#{idx}", format_threshold(assertion["threshold"]))
+    |> put_evidence_form_value(idx, "expected", assertion["expected"])
+    |> put_evidence_form_value(idx, "context", assertion["context"])
+  end
+
   defp maybe_put_assertion_value(params, idx, assertion) do
     Map.put(params, "assertion_value_#{idx}", assertion["value"] || "")
   end
@@ -131,11 +142,18 @@ defmodule Aludel.Evals.AssertionParser do
                  idx
                ),
              {:ok, threshold} <-
-               parse_threshold(Map.get(assertion_params, "assertion_threshold_#{idx}", ""), idx) do
+               parse_threshold(
+                 Map.get(assertion_params, "assertion_threshold_#{idx}", ""),
+                 idx,
+                 "json_deep_compare"
+               ) do
           {:ok,
            %{"type" => type, "expected" => expected}
            |> maybe_put_threshold(threshold)}
         end
+
+      "rubric_judge" ->
+        build_visual_rubric_judge(assertion_params, idx, :strict)
 
       _other ->
         {:ok,
@@ -171,6 +189,9 @@ defmodule Aludel.Evals.AssertionParser do
          |> maybe_put_preview_threshold(
            Map.get(assertion_params, "assertion_threshold_#{idx}", "")
          )}
+
+      "rubric_judge" ->
+        build_visual_rubric_judge(assertion_params, idx, :preview)
 
       _other ->
         {:ok,
@@ -363,22 +384,83 @@ defmodule Aludel.Evals.AssertionParser do
      "Assertion at index #{idx}: json_deep_compare type requires valid JSON in the expected payload"}
   end
 
-  defp parse_threshold("", _idx), do: {:ok, nil}
+  defp build_visual_rubric_judge(assertion_params, idx, :strict) do
+    with {:ok, source} <- parse_rubric_source(assertion_params, idx),
+         {:ok, threshold} <-
+           parse_threshold(
+             Map.get(assertion_params, "assertion_threshold_#{idx}", ""),
+             idx,
+             "rubric_judge"
+           ) do
+      assertion =
+        %{
+          "type" => "rubric_judge",
+          "provider_id" => Map.get(assertion_params, "assertion_provider_id_#{idx}", "")
+        }
+        |> Map.merge(source)
+        |> maybe_put_threshold(threshold)
+        |> maybe_put_evidence(assertion_params, idx, "expected")
+        |> maybe_put_evidence(assertion_params, idx, "context")
 
-  defp parse_threshold(value, idx) when is_binary(value) do
+      {:ok, assertion}
+    end
+  end
+
+  defp build_visual_rubric_judge(assertion_params, idx, :preview) do
+    source = preview_rubric_source(assertion_params, idx)
+
+    assertion =
+      %{
+        "type" => "rubric_judge",
+        "provider_id" => Map.get(assertion_params, "assertion_provider_id_#{idx}", "")
+      }
+      |> Map.merge(source)
+      |> maybe_put_preview_threshold(Map.get(assertion_params, "assertion_threshold_#{idx}", ""))
+      |> maybe_put_evidence(assertion_params, idx, "expected")
+      |> maybe_put_evidence(assertion_params, idx, "context")
+
+    {:ok, assertion}
+  end
+
+  defp parse_rubric_source(assertion_params, idx) do
+    case Map.get(assertion_params, "assertion_rubric_source_#{idx}", "template") do
+      "template" ->
+        {:ok, %{"template" => Map.get(assertion_params, "assertion_template_#{idx}", "")}}
+
+      "custom" ->
+        {:ok, %{"rubric" => Map.get(assertion_params, "assertion_rubric_#{idx}", "")}}
+
+      _other ->
+        {:error, "Assertion at index #{idx}: rubric_judge type requires a valid rubric source"}
+    end
+  end
+
+  defp preview_rubric_source(assertion_params, idx) do
+    case Map.get(assertion_params, "assertion_rubric_source_#{idx}", "template") do
+      "custom" ->
+        %{"rubric" => Map.get(assertion_params, "assertion_rubric_#{idx}", "")}
+
+      _other ->
+        %{"template" => Map.get(assertion_params, "assertion_template_#{idx}", "")}
+    end
+  end
+
+  defp parse_threshold("", _idx, _type) do
+    {:ok, nil}
+  end
+
+  defp parse_threshold(value, idx, type) when is_binary(value) do
     case Float.parse(String.trim(value)) do
       {threshold, ""} ->
         {:ok, threshold}
 
       _other ->
-        {:error,
-         "Assertion at index #{idx}: json_deep_compare type requires a threshold between 0 and 100"}
+        {:error, "Assertion at index #{idx}: #{type} type requires a threshold between 0 and 100"}
     end
   end
 
-  defp parse_threshold(_value, idx) do
-    {:error,
-     "Assertion at index #{idx}: json_deep_compare type requires a threshold between 0 and 100"}
+  defp parse_threshold(_value, idx, type) do
+    {:error, "Assertion at index #{idx}: #{type} type requires a threshold between 0 and 100"}
   end
 
   defp collect_visual_assertion(assertion_params, idx, {:ok, assertions}, mode) do
@@ -390,6 +472,40 @@ defmodule Aludel.Evals.AssertionParser do
 
   defp maybe_put_threshold(assertion, nil), do: assertion
   defp maybe_put_threshold(assertion, threshold), do: Map.put(assertion, "threshold", threshold)
+
+  defp put_evidence_form_value(params, idx, field, value) do
+    params
+    |> Map.put("assertion_#{field}_#{idx}", format_evidence(value))
+    |> Map.put("assertion_#{field}_json_value_#{idx}", Jason.encode!(value))
+  end
+
+  defp maybe_put_evidence(assertion, assertion_params, idx, field) do
+    text = Map.get(assertion_params, "assertion_#{field}_#{idx}", "")
+    encoded = Map.get(assertion_params, "assertion_#{field}_json_value_#{idx}", "")
+
+    case parse_optional_evidence(text, encoded) do
+      :omit -> assertion
+      {:put, value} -> Map.put(assertion, field, value)
+    end
+  end
+
+  defp parse_optional_evidence(value, _encoded) when value in [nil, ""] do
+    :omit
+  end
+
+  defp parse_optional_evidence(value, encoded) when is_binary(value) do
+    case Jason.decode(encoded) do
+      {:ok, decoded} ->
+        if value == format_evidence(decoded), do: {:put, decoded}, else: {:put, value}
+
+      _other ->
+        {:put, value}
+    end
+  end
+
+  defp parse_optional_evidence(value, _encoded) do
+    {:put, value}
+  end
 
   defp maybe_put_preview_expected(assertion, value) when is_binary(value) do
     case Jason.decode(value) do
@@ -451,6 +567,30 @@ defmodule Aludel.Evals.AssertionParser do
 
   defp format_threshold(nil), do: ""
   defp format_threshold(value), do: to_string(value)
+
+  defp rubric_source(%{"rubric" => rubric}) when is_binary(rubric) do
+    "custom"
+  end
+
+  defp rubric_source(_assertion) do
+    "template"
+  end
+
+  defp format_evidence(nil) do
+    ""
+  end
+
+  defp format_evidence(value) when is_binary(value) do
+    value
+  end
+
+  defp format_evidence(value) when is_map(value) or is_list(value) do
+    Jason.encode!(value)
+  end
+
+  defp format_evidence(value) do
+    to_string(value)
+  end
 
   defp blank_string?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank_string?(_value), do: false

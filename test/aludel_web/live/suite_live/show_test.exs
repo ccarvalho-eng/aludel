@@ -12,6 +12,7 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
   alias Aludel.Datasets
   alias Aludel.Evals
   alias Aludel.Interfaces.HttpClientMock
+  alias Aludel.Providers
 
   test "displays suite details", %{conn: conn} do
     prompt = prompt_fixture(%{name: "Test Prompt"})
@@ -508,6 +509,140 @@ defmodule Aludel.Web.SuiteLive.ShowTest do
   end
 
   describe "assertion editing" do
+    test "preserves an unavailable judge provider while editing", %{conn: conn} do
+      suite = suite_fixture()
+      provider = provider_fixture(%{name: "Removed judge"})
+
+      test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          assertions: [
+            %{
+              "type" => "rubric_judge",
+              "template" => "correctness",
+              "provider_id" => provider.id
+            }
+          ]
+        })
+
+      assert {:ok, _provider} = Providers.delete_provider(provider)
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      view
+      |> element("[phx-click='edit_test_case'][phx-value-id='#{test_case.id}']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "#test_case_assertion_provider_id_0 option[value='#{provider.id}']",
+               "Unavailable provider"
+             )
+
+      view
+      |> form("#test-case-form-#{test_case.id}",
+        test_case: %{
+          id: test_case.id,
+          variable_values: %{},
+          assertions: %{
+            assertion_type_0: "rubric_judge",
+            assertion_rubric_source_0: "template",
+            assertion_template_0: "correctness",
+            assertion_provider_id_0: provider.id,
+            assertion_threshold_0: ""
+          }
+        }
+      )
+      |> render_submit()
+
+      [assertion] = Evals.get_test_case!(test_case.id).assertions
+      assert assertion["provider_id"] == provider.id
+    end
+
+    test "edits a custom rubric judge through visual controls", %{conn: conn} do
+      suite = suite_fixture()
+      provider = provider_fixture(%{name: "Review provider"})
+
+      test_case =
+        test_case_fixture(%{
+          suite_id: suite.id,
+          assertions: [
+            %{
+              "type" => "rubric_judge",
+              "template" => "relevance",
+              "provider_id" => provider.id,
+              "threshold" => 80
+            }
+          ]
+        })
+
+      {:ok, view, _html} = live(conn, "/suites/#{suite.id}")
+
+      assert has_element?(view, "#rubric-judge-#{test_case.id}-0", "Relevance")
+      assert has_element?(view, "#rubric-judge-#{test_case.id}-0", "Review provider")
+
+      view
+      |> element("[phx-click='edit_test_case'][phx-value-id='#{test_case.id}']")
+      |> render_click()
+
+      assert has_element?(view, "#judge-fields-#{test_case.id}-0")
+      assert has_element?(view, "#test_case_assertion_template_0")
+
+      view
+      |> form("#test-case-form-#{test_case.id}",
+        test_case: %{
+          id: test_case.id,
+          variable_values: %{},
+          assertions: %{
+            assertion_type_0: "rubric_judge",
+            assertion_rubric_source_0: "custom",
+            assertion_template_0: "relevance",
+            assertion_provider_id_0: provider.id,
+            assertion_threshold_0: "80",
+            assertion_expected_0: "",
+            assertion_context_0: ""
+          }
+        }
+      )
+      |> render_change()
+
+      assert has_element?(view, "#test_case_assertion_rubric_0")
+
+      view
+      |> form("#test-case-form-#{test_case.id}",
+        test_case: %{
+          id: test_case.id,
+          variable_values: %{},
+          assertions: %{
+            assertion_type_0: "rubric_judge",
+            assertion_rubric_source_0: "custom",
+            assertion_rubric_0: "The answer must be accurate and concise.",
+            assertion_provider_id_0: provider.id,
+            assertion_threshold_0: "85",
+            assertion_expected_0: "Reference",
+            assertion_context_0: "Grounding"
+          }
+        }
+      )
+      |> render_submit()
+
+      updated = Evals.get_test_case!(test_case.id)
+
+      assert updated.assertions == [
+               %{
+                 "type" => "rubric_judge",
+                 "rubric" => "The answer must be accurate and concise.",
+                 "provider_id" => provider.id,
+                 "threshold" => 85.0,
+                 "expected" => "Reference",
+                 "context" => "Grounding"
+               }
+             ]
+
+      assert has_element?(view, "#rubric-judge-#{test_case.id}-0", "Custom rubric")
+      assert has_element?(view, "#rubric-judge-#{test_case.id}-0", "Reference")
+      assert has_element?(view, "#rubric-judge-#{test_case.id}-0", "Grounding")
+    end
+
     test "edits a test case with deep compare assertions without crashing", %{conn: conn} do
       suite = suite_fixture()
 

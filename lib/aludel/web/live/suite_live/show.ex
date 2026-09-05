@@ -12,6 +12,7 @@ defmodule Aludel.Web.SuiteLive.Show do
   alias Aludel.Evals
   alias Aludel.Evals.AssertionParser
   alias Aludel.Evals.DocumentIngestion
+  alias Aludel.Evals.JudgeCatalog
   alias Aludel.Evals.TestCaseEditor
   alias Aludel.Evals.TestCaseImporter
   alias Aludel.Executor
@@ -64,6 +65,7 @@ defmodule Aludel.Web.SuiteLive.Show do
       |> assign(:dataset_import_form, to_form(%{"dataset_id" => ""}, as: :dataset_import))
       |> assign(:dataset_import_status, nil)
       |> assign(:providers, providers)
+      |> assign(:judge_templates, JudgeCatalog.all())
       |> assign(:execution_mode_label, Executor.execution_mode_label())
       |> assign(:suite_runs, suite_runs)
       |> assign(:running, false)
@@ -699,6 +701,28 @@ defmodule Aludel.Web.SuiteLive.Show do
     ]
   end
 
+  defp judge_source_label(%{"template" => template_id}) do
+    case JudgeCatalog.fetch(template_id) do
+      {:ok, template} -> template.name
+      :error -> template_id
+    end
+  end
+
+  defp judge_source_label(%{"rubric" => _rubric}) do
+    "Custom rubric"
+  end
+
+  defp judge_source_label(_assertion) do
+    "Invalid configuration"
+  end
+
+  defp judge_provider_name(providers, provider_id) do
+    case Enum.find(providers, &(&1.id == provider_id)) do
+      nil -> "Unavailable provider (#{provider_id})"
+      provider -> provider.name
+    end
+  end
+
   defp deep_compare_rows(comparisons) when is_map(comparisons) do
     comparisons
     |> Enum.sort_by(fn {path, _details} -> path end)
@@ -866,6 +890,30 @@ defmodule Aludel.Web.SuiteLive.Show do
 
       value ->
         value
+    end
+  end
+
+  defp assertion_rubric_source_value(assertion, test_case_params, idx) do
+    case assertion_form_value(test_case_params, idx, "rubric_source") do
+      nil -> if is_binary(assertion["rubric"]), do: "custom", else: "template"
+      value -> value
+    end
+  end
+
+  defp assertion_evidence_json_value(assertion, test_case_params, idx, field_name) do
+    case assertion_form_value(test_case_params, idx, "#{field_name}_json_value") do
+      nil -> Jason.encode!(Map.get(assertion, field_name))
+      value -> value
+    end
+  end
+
+  defp judge_provider_options(providers, selected_id) do
+    options = Enum.map(providers, &{&1.name, &1.id})
+
+    if selected_id == "" or Enum.any?(providers, &(&1.id == selected_id)) do
+      options
+    else
+      [{"Unavailable provider (#{selected_id})", selected_id} | options]
     end
   end
 

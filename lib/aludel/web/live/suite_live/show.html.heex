@@ -486,7 +486,8 @@
                                     {"regex", "regex"},
                                     {"exact", "exact_match"},
                                     {"json field", "json_field"},
-                                    {"json deep compare", "json_deep_compare"}
+                                    {"json deep compare", "json_deep_compare"},
+                                    {"rubric judge", "rubric_judge"}
                                   ]}
                                   class="w-full select text-[13px]"
                                 />
@@ -612,6 +613,166 @@
                                     />
                                   </div>
                                 </div>
+                              <% current_type == "rubric_judge" -> %>
+                                <% rubric_source =
+                                  assertion_rubric_source_value(
+                                    assertion,
+                                    @editing_test_case_params,
+                                    idx
+                                  ) %>
+                                <% judge_provider_id =
+                                  assertion_text_value(
+                                    assertion,
+                                    @editing_test_case_params,
+                                    idx,
+                                    "provider_id",
+                                    "provider_id"
+                                  ) %>
+                                <div
+                                  id={"judge-fields-#{test_case.id}-#{idx}"}
+                                  style="display: flex; flex-direction: column; gap: 10px;"
+                                >
+                                  <.input
+                                    type="select"
+                                    name={"#{@test_case_form.name}[assertions][assertion_rubric_source_#{idx}]"}
+                                    value={rubric_source}
+                                    options={[
+                                      {"Built-in judge", "template"},
+                                      {"Custom rubric", "custom"}
+                                    ]}
+                                    id={"#{@test_case_form.id}_assertion_rubric_source_#{idx}"}
+                                    label="Judge criteria"
+                                  />
+                                  <%= if rubric_source == "custom" do %>
+                                    <.input
+                                      type="textarea"
+                                      name={"#{@test_case_form.name}[assertions][assertion_rubric_#{idx}]"}
+                                      value={
+                                        assertion_text_value(
+                                          assertion,
+                                          @editing_test_case_params,
+                                          idx,
+                                          "rubric",
+                                          "rubric"
+                                        )
+                                      }
+                                      id={"#{@test_case_form.id}_assertion_rubric_#{idx}"}
+                                      label="Custom rubric"
+                                      maxlength="4000"
+                                      rows="5"
+                                      placeholder="Describe exactly how the response should be scored."
+                                    />
+                                  <% else %>
+                                    <.input
+                                      type="select"
+                                      name={"#{@test_case_form.name}[assertions][assertion_template_#{idx}]"}
+                                      value={
+                                        assertion_text_value(
+                                          assertion,
+                                          @editing_test_case_params,
+                                          idx,
+                                          "template",
+                                          "template"
+                                        )
+                                      }
+                                      options={
+                                        Enum.map(
+                                          @judge_templates,
+                                          &{"#{&1.name} — #{&1.description}", &1.id}
+                                        )
+                                      }
+                                      prompt="Choose a built-in judge"
+                                      id={"#{@test_case_form.id}_assertion_template_#{idx}"}
+                                      label="Built-in judge"
+                                    />
+                                  <% end %>
+                                  <.input
+                                    type="select"
+                                    name={"#{@test_case_form.name}[assertions][assertion_provider_id_#{idx}]"}
+                                    value={judge_provider_id}
+                                    options={
+                                      judge_provider_options(@providers, judge_provider_id)
+                                    }
+                                    prompt="Choose a judge provider"
+                                    id={"#{@test_case_form.id}_assertion_provider_id_#{idx}"}
+                                    label="Judge provider"
+                                  />
+                                  <.input
+                                    type="number"
+                                    name={"#{@test_case_form.name}[assertions][assertion_threshold_#{idx}]"}
+                                    value={
+                                      assertion_threshold_value(
+                                        assertion,
+                                        @editing_test_case_params,
+                                        idx
+                                      )
+                                    }
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    placeholder="80"
+                                    id={"#{@test_case_form.id}_assertion_threshold_#{idx}"}
+                                    label="Pass threshold (defaults to 80)"
+                                  />
+                                  <.input
+                                    type="textarea"
+                                    name={"#{@test_case_form.name}[assertions][assertion_expected_#{idx}]"}
+                                    value={
+                                      assertion_text_value(
+                                        assertion,
+                                        @editing_test_case_params,
+                                        idx,
+                                        "expected",
+                                        "expected"
+                                      )
+                                    }
+                                    id={"#{@test_case_form.id}_assertion_expected_#{idx}"}
+                                    label="Reference answer (optional)"
+                                    rows="3"
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name={"#{@test_case_form.name}[assertions][assertion_expected_json_value_#{idx}]"}
+                                    value={
+                                      assertion_evidence_json_value(
+                                        assertion,
+                                        @editing_test_case_params,
+                                        idx,
+                                        "expected"
+                                      )
+                                    }
+                                    id={"#{@test_case_form.id}_assertion_expected_json_value_#{idx}"}
+                                  />
+                                  <.input
+                                    type="textarea"
+                                    name={"#{@test_case_form.name}[assertions][assertion_context_#{idx}]"}
+                                    value={
+                                      assertion_text_value(
+                                        assertion,
+                                        @editing_test_case_params,
+                                        idx,
+                                        "context",
+                                        "context"
+                                      )
+                                    }
+                                    id={"#{@test_case_form.id}_assertion_context_#{idx}"}
+                                    label="Grounding context (optional)"
+                                    rows="3"
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name={"#{@test_case_form.name}[assertions][assertion_context_json_value_#{idx}]"}
+                                    value={
+                                      assertion_evidence_json_value(
+                                        assertion,
+                                        @editing_test_case_params,
+                                        idx,
+                                        "context"
+                                      )
+                                    }
+                                    id={"#{@test_case_form.id}_assertion_context_json_value_#{idx}"}
+                                  />
+                                </div>
                               <% true -> %>
                                 <div
                                   id={"value-field-#{test_case.id}-#{idx}"}
@@ -651,7 +812,7 @@
                           class="json-editor w-full textarea"
                         />
                         <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                          Types: contains, not_contains, regex, exact_match, json_field, json_deep_compare
+                          Types: contains, not_contains, regex, exact_match, json_field, json_deep_compare, rubric_judge
                         </div>
                       <% end %>
                       <%= if @test_case_form[:assertions_json].errors != [] do %>
@@ -797,7 +958,7 @@
                         No assertions
                       </div>
                     <% else %>
-                      <%= for assertion <- test_case.assertions do %>
+                      <%= for {assertion, assertion_idx} <- Enum.with_index(test_case.assertions) do %>
                         <div style="font-size: 13px; margin-bottom: 6px; padding: 6px 8px; background: var(--bg-secondary); border-radius: 4px;">
                           <%= cond do %>
                             <% assertion["type"] == "json_field" -> %>
@@ -836,6 +997,59 @@
                                   </span>
                                 </div>
                               <% end %>
+                            <% assertion["type"] == "rubric_judge" -> %>
+                              <div
+                                id={"rubric-judge-#{test_case.id}-#{assertion_idx}"}
+                                style="display: flex; flex-direction: column; gap: 4px;"
+                              >
+                                <div>
+                                  <span style="font-weight: 600; color: var(--accent);">
+                                    rubric judge:
+                                  </span>
+                                  <span style="color: var(--text-primary);">
+                                    {judge_source_label(assertion)}
+                                  </span>
+                                </div>
+                                <div style="font-size: 12px; padding-left: 8px;">
+                                  <span style="color: var(--text-secondary);">provider:</span>
+                                  <span style="color: var(--text-primary);">
+                                    {judge_provider_name(@providers, assertion["provider_id"])}
+                                  </span>
+                                </div>
+                                <div style="font-size: 12px; padding-left: 8px;">
+                                  <span style="color: var(--text-secondary);">threshold:</span>
+                                  <span style="font-family: monospace; color: var(--text-primary);">
+                                    {assertion["threshold"] || 80}%
+                                  </span>
+                                </div>
+                                <div
+                                  :if={assertion["rubric"]}
+                                  style="font-size: 12px; padding-left: 8px;"
+                                >
+                                  <span style="color: var(--text-secondary);">rubric:</span>
+                                  <span style="color: var(--text-primary);">
+                                    {assertion["rubric"]}
+                                  </span>
+                                </div>
+                                <div
+                                  :if={assertion["expected"]}
+                                  style="font-size: 12px; padding-left: 8px;"
+                                >
+                                  <span style="color: var(--text-secondary);">reference:</span>
+                                  <span style="color: var(--text-primary);">
+                                    {display_value(assertion["expected"])}
+                                  </span>
+                                </div>
+                                <div
+                                  :if={assertion["context"]}
+                                  style="font-size: 12px; padding-left: 8px;"
+                                >
+                                  <span style="color: var(--text-secondary);">context:</span>
+                                  <span style="color: var(--text-primary);">
+                                    {display_value(assertion["context"])}
+                                  </span>
+                                </div>
+                              </div>
                             <% true -> %>
                               <span style="font-weight: 600; color: var(--accent);">
                                 {assertion["type"]}:

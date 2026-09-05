@@ -123,6 +123,59 @@ defmodule Aludel.Evals.AssertionParserTest do
       assert assertion["template"] == "correctness"
     end
 
+    test "parses built-in rubric judges in visual mode" do
+      provider_id = Ecto.UUID.generate()
+
+      params = %{
+        "assertions" => %{
+          "assertion_type_0" => "rubric_judge",
+          "assertion_rubric_source_0" => "template",
+          "assertion_template_0" => "faithfulness",
+          "assertion_provider_id_0" => provider_id,
+          "assertion_threshold_0" => "85",
+          "assertion_expected_0" => "Reference answer",
+          "assertion_context_0" => "Grounding evidence"
+        }
+      }
+
+      assert {:ok,
+              [
+                %{
+                  "type" => "rubric_judge",
+                  "template" => "faithfulness",
+                  "provider_id" => ^provider_id,
+                  "threshold" => 85.0,
+                  "expected" => "Reference answer",
+                  "context" => "Grounding evidence"
+                }
+              ]} = AssertionParser.parse(:visual, params)
+    end
+
+    test "parses custom rubric judges in visual mode" do
+      provider_id = Ecto.UUID.generate()
+
+      params = %{
+        "assertions" => %{
+          "assertion_type_0" => "rubric_judge",
+          "assertion_rubric_source_0" => "custom",
+          "assertion_rubric_0" => "Score factual correctness.",
+          "assertion_provider_id_0" => provider_id,
+          "assertion_threshold_0" => "",
+          "assertion_expected_0" => "",
+          "assertion_context_0" => ""
+        }
+      }
+
+      assert {:ok,
+              [
+                %{
+                  "type" => "rubric_judge",
+                  "rubric" => "Score factual correctness.",
+                  "provider_id" => ^provider_id
+                }
+              ]} = AssertionParser.parse(:visual, params)
+    end
+
     test "rejects unknown or ambiguous rubric judge templates" do
       provider_id = Ecto.UUID.generate()
 
@@ -319,6 +372,55 @@ defmodule Aludel.Evals.AssertionParserTest do
 
       assert assertions_json =~ "\"type\": \"json_deep_compare\""
       assert expected_json =~ "\"status\": \"ok\""
+    end
+
+    test "builds visual params for rubric judge assertions" do
+      provider_id = Ecto.UUID.generate()
+
+      assertions = [
+        %{
+          "type" => "rubric_judge",
+          "template" => "correctness",
+          "provider_id" => provider_id,
+          "threshold" => 90,
+          "expected" => "Paris",
+          "context" => "The question asks for France's capital."
+        },
+        %{
+          "type" => "rubric_judge",
+          "rubric" => "Prefer concise, correct answers.",
+          "provider_id" => provider_id
+        }
+      ]
+
+      assert %{
+               "assertions" => %{
+                 "assertion_rubric_source_0" => "template",
+                 "assertion_template_0" => "correctness",
+                 "assertion_provider_id_0" => ^provider_id,
+                 "assertion_threshold_0" => "90",
+                 "assertion_expected_0" => "Paris",
+                 "assertion_context_0" => "The question asks for France's capital.",
+                 "assertion_rubric_source_1" => "custom",
+                 "assertion_rubric_1" => "Prefer concise, correct answers."
+               }
+             } = AssertionParser.build_form_params(assertions)
+    end
+
+    test "preserves typed rubric evidence through visual form params" do
+      assertions = [
+        %{
+          "type" => "rubric_judge",
+          "template" => "faithfulness",
+          "provider_id" => Ecto.UUID.generate(),
+          "expected" => %{"answer" => "Paris"},
+          "context" => ["Grounding", %{"source" => "atlas"}]
+        }
+      ]
+
+      params = AssertionParser.build_form_params(assertions)
+
+      assert {:ok, ^assertions} = AssertionParser.parse(:visual, params)
     end
   end
 
