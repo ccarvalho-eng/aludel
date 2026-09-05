@@ -25,6 +25,10 @@ defmodule Aludel.RedTeam.Generator do
   @max_total_tokens 100_000
   @max_cost_usd 100.0
   @max_request_timeout_ms 120_000
+  @checksum_regex ~r/\A[0-9a-f]{64}\z/
+  @provider_types Provider
+                  |> Ecto.Enum.values(:provider)
+                  |> Enum.map(&Atom.to_string/1)
 
   @system_prompt """
   You create adversarial evaluation cases for defensive testing. The next user
@@ -67,6 +71,18 @@ defmodule Aludel.RedTeam.Generator do
 
   def generate(_provider_id, _opts) do
     {:error, :invalid_options}
+  end
+
+  @doc false
+  @spec valid?(term()) :: boolean()
+  def valid?(%Generation{} = generation) do
+    valid_generation_shape?(generation) and
+      valid_generation_outcomes?(generation) and
+      generation_checksum_matches?(generation)
+  end
+
+  def valid?(_generation) do
+    false
   end
 
   defp validate_options(opts) do
@@ -323,6 +339,191 @@ defmodule Aludel.RedTeam.Generator do
     :partial_failure
   end
 
+  defp valid_generation_shape?(generation) do
+    valid_generation_identity?(generation) and
+      valid_generation_content?(generation) and
+      valid_generation_accounting?(generation)
+  end
+
+  defp valid_generation_identity?(generation) do
+    generation.schema_version == @schema_version and
+      generation.prompt_version == @prompt_version and
+      generation.status in [:completed, :partial_failure, :failed] and
+      valid_uuid?(generation.id) and
+      valid_provider?(generation.provider) and
+      valid_categories?(generation.requested_categories)
+  end
+
+  defp valid_generation_content?(generation) do
+    valid_cases?(generation.cases, generation.requested_categories) and
+      valid_failures?(generation.failures, generation.requested_categories) and
+      valid_checksum?(generation.target_context_checksum)
+  end
+
+  defp valid_generation_accounting?(generation) do
+    valid_usage?(generation.usage) and
+      valid_generation_limits?(generation.limits) and
+      match?(%DateTime{}, generation.generated_at) and
+      valid_checksum?(generation.checksum)
+  end
+
+  defp valid_generation_outcomes?(generation) do
+    case_counts = Enum.frequencies_by(generation.cases, & &1.category)
+    failure_counts = Enum.frequencies_by(generation.failures, & &1.category)
+
+    categories_valid? =
+      Enum.all?(generation.requested_categories, fn category ->
+        case {Map.get(case_counts, category, 0), Map.get(failure_counts, category, 0)} do
+          {count, 0} -> count == generation.limits.cases_per_category
+          {0, 1} -> true
+          _other -> false
+        end
+      end)
+
+    expected_requests =
+      Enum.count(generation.requested_categories, fn category ->
+        not Enum.any?(generation.failures, fn failure ->
+          failure.category == category and failure.type == :budget_exhausted
+        end)
+      end)
+
+    categories_valid? and
+      generation.usage.requests == expected_requests and
+      generation.usage.requests <= generation.limits.max_requests and
+      generation.status ==
+        generation_status(%{cases: generation.cases, failures: generation.failures})
+  end
+
+  defp valid_provider?(%{id: id, type: type, model: model} = provider) do
+    Map.keys(provider) |> Enum.sort() == [:id, :model, :type] and
+      valid_uuid?(id) and type in @provider_types and valid_text?(model)
+  end
+
+  defp valid_provider?(_provider) do
+    false
+  end
+
+  defp valid_categories?(categories) when is_list(categories) and categories != [] do
+    Enum.uniq(categories) == categories and
+      Enum.all?(categories, &(&1 in Catalog.categories()))
+  end
+
+  defp valid_categories?(_categories) do
+    false
+  end
+
+  defp valid_cases?(cases, categories) when is_list(cases) do
+    Enum.all?(cases, fn generated_case ->
+      GeneratedCase.valid?(generated_case) and generated_case.category in categories
+    end) and Enum.uniq_by(cases, & &1.id) == cases
+  end
+
+  defp valid_cases?(_cases, _categories) do
+    false
+  end
+
+  defp valid_failures?(failures, categories) when is_list(failures) do
+    Enum.all?(failures, &valid_failure?(&1, categories)) and
+      Enum.uniq_by(failures, & &1.category) == failures
+  end
+
+  defp valid_failures?(_failures, _categories) do
+    false
+  end
+
+  defp valid_failure?(%{category: category, type: type, message: message} = failure, categories) do
+    Map.keys(failure) |> Enum.sort() == [:category, :message, :type] and
+      category in categories and
+      type in [:provider_error, :timeout, :invalid_response, :budget_exhausted] and
+      message == failure_message(type)
+  end
+
+  defp valid_failure?(_failure, _categories) do
+    false
+  end
+
+  defp valid_usage?(
+         %{
+           requests: requests,
+           input_tokens: input_tokens,
+           output_tokens: output_tokens,
+           total_tokens: total_tokens,
+           cost_usd: cost_usd
+         } = usage
+       ) do
+    Map.keys(usage) |> Enum.sort() ==
+      [:cost_usd, :input_tokens, :output_tokens, :requests, :total_tokens] and
+      non_negative_integer?(requests) and
+      non_negative_integer?(input_tokens) and
+      non_negative_integer?(output_tokens) and
+      total_tokens == input_tokens + output_tokens and
+      is_number(cost_usd) and cost_usd >= 0
+  end
+
+  defp valid_usage?(_usage) do
+    false
+  end
+
+  defp valid_generation_limits?(
+         %{
+           cases_per_category: cases_per_category,
+           max_requests: max_requests,
+           max_output_tokens: max_output_tokens,
+           max_total_tokens: max_total_tokens,
+           max_cost_usd: max_cost_usd,
+           request_timeout_ms: request_timeout_ms,
+           max_target_context_chars: max_target_context_chars,
+           max_response_bytes: max_response_bytes
+         } = limits
+       ) do
+    Map.keys(limits) |> Enum.sort() ==
+      [
+        :cases_per_category,
+        :max_cost_usd,
+        :max_output_tokens,
+        :max_requests,
+        :max_response_bytes,
+        :max_target_context_chars,
+        :max_total_tokens,
+        :request_timeout_ms
+      ] and
+      validate_cases_per_category(cases_per_category) == :ok and
+      validate_limits(
+        max_requests: max_requests,
+        max_output_tokens: max_output_tokens,
+        max_total_tokens: max_total_tokens,
+        max_cost_usd: max_cost_usd,
+        request_timeout_ms: request_timeout_ms
+      ) == :ok and
+      max_target_context_chars == @max_target_context_chars and
+      max_response_bytes == @max_response_bytes
+  end
+
+  defp valid_generation_limits?(_limits) do
+    false
+  end
+
+  defp valid_uuid?(value) when is_binary(value) do
+    match?({:ok, _uuid}, Ecto.UUID.cast(value))
+  end
+
+  defp valid_uuid?(_value) do
+    false
+  end
+
+  defp valid_text?(value) do
+    is_binary(value) and String.valid?(value) and String.trim(value) != "" and
+      not String.contains?(value, "\u0000")
+  end
+
+  defp valid_checksum?(value) do
+    is_binary(value) and Regex.match?(@checksum_regex, value)
+  end
+
+  defp non_negative_integer?(value) do
+    is_integer(value) and value >= 0
+  end
+
   defp add_failure(state, category, type, message) do
     failure = %{category: category, type: type, message: message}
     %{state | failures: state.failures ++ [failure]}
@@ -375,6 +576,12 @@ defmodule Aludel.RedTeam.Generator do
     |> sha256()
   end
 
+  defp generation_checksum_matches?(generation) do
+    generation.checksum == generation_checksum(generation)
+  rescue
+    _exception -> false
+  end
+
   defp failure_checksum_value(failure) do
     [Atom.to_string(failure.category), Atom.to_string(failure.type), failure.message]
     |> Enum.join(":")
@@ -415,5 +622,21 @@ defmodule Aludel.RedTeam.Generator do
 
   defp response_message do
     "Generation response did not match the required schema"
+  end
+
+  defp failure_message(:provider_error) do
+    provider_message()
+  end
+
+  defp failure_message(:timeout) do
+    timeout_message()
+  end
+
+  defp failure_message(:invalid_response) do
+    response_message()
+  end
+
+  defp failure_message(:budget_exhausted) do
+    budget_message()
   end
 end

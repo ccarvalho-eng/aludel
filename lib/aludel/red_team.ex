@@ -7,14 +7,15 @@ defmodule Aludel.RedTeam do
   same case version and prompt variable. It records provenance, risk category,
   severity, content checksum, and a stable deduplication key in entry metadata.
 
-  Curated cases include deterministic canary assertions. Generated cases are
-  returned as inert review values without database writes or execution.
+  Curated cases include deterministic canary assertions. Generation returns
+  inert review values without database writes or execution; a separate import
+  call requires explicit approved candidate IDs.
   """
-
-  import Ecto.Query
 
   alias Aludel.Datasets.{Dataset, DatasetEntry}
   alias Aludel.RedTeam.Catalog
+  alias Aludel.RedTeam.DatasetImporter
+  alias Aludel.RedTeam.GeneratedImporter
   alias Aludel.RedTeam.Generation
   alias Aludel.RedTeam.Generator
   alias Ecto.Changeset
@@ -34,7 +35,7 @@ defmodule Aludel.RedTeam do
           | :invalid_judge_provider_id
           | :invalid_judge_threshold
           | {:unknown_categories, [term()]}
-          | {:unknown_case_ids, [term()]}
+          | {:unknown_case_ids, [String.t()]}
           | {:deduplication_conflict, String.t()}
           | Changeset.t()
   @type generate_error ::
@@ -45,6 +46,17 @@ defmodule Aludel.RedTeam do
           | :invalid_target_context
           | :invalid_budget
           | {:unknown_categories, [term()]}
+  @type generated_import_error ::
+          :dataset_not_found
+          | :invalid_generation
+          | :invalid_options
+          | :invalid_approved_case_ids
+          | :invalid_variable
+          | :invalid_judge_provider_id
+          | :invalid_judge_threshold
+          | {:unknown_case_ids, [term()]}
+          | {:deduplication_conflict, String.t()}
+          | Changeset.t()
 
   @doc """
   Returns every case in stable catalog order.
@@ -104,6 +116,30 @@ defmodule Aludel.RedTeam do
           {:ok, Generation.t()} | {:error, generate_error()}
   def generate(provider_id, opts \\ []) do
     Generator.generate(provider_id, opts)
+  end
+
+  @doc """
+  Imports explicitly approved generated cases into an existing dataset.
+
+  The generation checksum and every approved case checksum are revalidated
+  before the dataset is locked. The complete approved selection is written
+  atomically and retains generation, review, usage, limit, and judge provenance.
+
+  Options:
+
+    * `:approved_case_ids` - required non-empty unique list of candidate IDs
+    * `:variable` - prompt variable populated by each case; defaults to `"input"`
+    * `:judge_provider_id` - provider UUID for rubric judging; defaults to the generator provider
+    * `:judge_threshold` - rubric judge pass threshold from 0 to 100; defaults to 80
+
+  Repeating an exact import skips its existing entries. Changed payload,
+  provenance, review, or judge configuration under the same key returns a
+  conflict and rolls back the entire selection.
+  """
+  @spec import_generated(Dataset.t(), Generation.t(), keyword()) ::
+          {:ok, materialization()} | {:error, generated_import_error()}
+  def import_generated(dataset, generation, opts \\ []) do
+    GeneratedImporter.import(dataset, generation, opts)
   end
 
   @doc """
@@ -245,38 +281,20 @@ defmodule Aludel.RedTeam do
   end
 
   defp persist_cases(dataset_id, selected, opts) do
-    repo().transaction(fn ->
-      case lock_dataset(dataset_id) do
-        nil -> repo().rollback(:dataset_not_found)
-        locked_dataset -> materialize_locked(locked_dataset, selected, opts)
-      end
-    end)
+    prepared_entries = Enum.map(selected, &prepared_entry(&1, opts))
+    DatasetImporter.persist(dataset_id, prepared_entries)
   end
 
-  defp materialize_locked(dataset, selected, opts) do
-    keys = Enum.map(selected, &deduplication_key(&1, opts[:variable]))
-    entries = list_entries_with_keys(dataset.id, keys)
-    next_position = next_position(dataset.id)
+  defp prepared_entry(template, opts) do
+    key = deduplication_key(template, opts[:variable])
 
-    selected
-    |> Enum.reduce_while({[], [], next_position}, fn template, {created, skipped, position} ->
-      case materialize_template(dataset.id, template, opts, entries, position) do
-        {:created, entry} ->
-          {:cont, {[entry | created], skipped, position + 1}}
-
-        {:skipped, entry} ->
-          {:cont, {created, [entry | skipped], position}}
-
-        {:error, reason} ->
-          repo().rollback(reason)
-      end
-    end)
-    |> then(fn {created, skipped, _position} ->
-      %{created: Enum.reverse(created), skipped: Enum.reverse(skipped)}
-    end)
+    %{
+      deduplication_key: key,
+      attrs: entry_attrs(template, opts)
+    }
   end
 
-  defp entry_attrs(template, opts, position) do
+  defp entry_attrs(template, opts) do
     variable = opts[:variable]
     assertions = assertions(template, opts)
 
@@ -284,32 +302,8 @@ defmodule Aludel.RedTeam do
       name: template.name,
       variable_values: %{variable => template.prompt},
       assertions: assertions,
-      metadata: metadata(template, variable, opts),
-      position: position
+      metadata: metadata(template, variable, opts)
     }
-  end
-
-  defp materialize_template(dataset_id, template, opts, entries, position) do
-    attrs = entry_attrs(template, opts, position)
-    key = get_in(attrs, [:metadata, "red_team", "deduplication_key"])
-
-    case entries_with_key(entries, key) do
-      [] ->
-        case insert_entry(dataset_id, attrs) do
-          {:ok, entry} -> {:created, entry}
-          {:error, changeset} -> {:error, changeset}
-        end
-
-      [entry] ->
-        if matches_materialization?(entry, attrs) do
-          {:skipped, entry}
-        else
-          {:error, {:deduplication_conflict, key}}
-        end
-
-      _duplicates ->
-        {:error, {:deduplication_conflict, key}}
-    end
   end
 
   defp assertions(template, opts) do
@@ -372,67 +366,6 @@ defmodule Aludel.RedTeam do
 
   defp deduplication_key(template, variable) do
     "aludel:red_team:#{Catalog.name()}@#{Catalog.version()}:#{template.id}@#{template.version}:#{variable}"
-  end
-
-  defp lock_dataset(dataset_id) do
-    Dataset
-    |> where([dataset], dataset.id == ^dataset_id)
-    |> lock("FOR UPDATE")
-    |> repo().one()
-  end
-
-  defp list_entries_with_keys(_dataset_id, []) do
-    []
-  end
-
-  defp list_entries_with_keys(dataset_id, keys) do
-    DatasetEntry
-    |> where(
-      [entry],
-      entry.dataset_id == ^dataset_id and entry.red_team_deduplication_key in ^keys
-    )
-    |> repo().all()
-  end
-
-  defp entries_with_key(entries, key) do
-    Enum.filter(entries, fn entry ->
-      entry.red_team_deduplication_key == key
-    end)
-  end
-
-  defp matches_materialization?(entry, attrs) do
-    entry.name == attrs.name and
-      entry.variable_values == attrs.variable_values and
-      entry.messages == [] and
-      entry.assertions == attrs.assertions and
-      entry.red_team_deduplication_key ==
-        get_in(attrs, [:metadata, "red_team", "deduplication_key"]) and
-      entry.metadata["red_team"] == attrs.metadata["red_team"]
-  end
-
-  defp next_position(dataset_id) do
-    DatasetEntry
-    |> where([entry], entry.dataset_id == ^dataset_id)
-    |> select([entry], max(entry.position))
-    |> repo().one()
-    |> case do
-      nil -> 0
-      position -> position + 1
-    end
-  end
-
-  defp insert_entry(dataset_id, attrs) do
-    deduplication_key = get_in(attrs, [:metadata, "red_team", "deduplication_key"])
-
-    %DatasetEntry{
-      dataset_id: dataset_id,
-      red_team_deduplication_key: deduplication_key
-    }
-    |> DatasetEntry.changeset(attrs)
-    |> repo().insert()
-  end
-
-  defp repo do
-    Aludel.Repo.get()
+    |> DatasetImporter.bounded_key()
   end
 end

@@ -160,7 +160,23 @@ Generate cases for a product-specific context without writing to the database, t
 
 Generation is bounded by category count, cases per category, context size, requests, output tokens, observed total tokens, observed cost, response size, and per-request timeout. Valid categories remain reviewable when another category fails. Each candidate and the complete generation carry checksums for stable review. Usage is observed from successful provider responses; failed or timed-out external requests may still incur provider-side usage that Aludel cannot report.
 
-Catalog materialization and generated-case review are Elixir API features. Materialized curated cases use the normal dataset and suite workflows in the dashboard, `mix aludel.eval`, ExUnit, and the library API. There is no separate red-team CLI command or generation form in the dashboard yet.
+After reviewing the candidates, explicitly approve their stable IDs and import them atomically:
+
+```elixir
+approved_case_ids =
+  generation.cases
+  |> Enum.filter(&approved_by_reviewer?/1)
+  |> Enum.map(& &1.id)
+
+{:ok, %{created: created, skipped: skipped}} =
+  Aludel.RedTeam.import_generated(dataset, generation,
+    approved_case_ids: approved_case_ids
+  )
+```
+
+Import revalidates the generation and candidate checksums, requires at least one unique approved ID, attaches each candidate's recommended rubric judge, records generation and review provenance, and skips only an exact prior import. Any conflict rolls back the complete approved selection.
+
+Catalog materialization and generated-case generation, review, and import are Elixir API features. Persisted cases use the normal dataset and suite workflows in the dashboard, `mix aludel.eval`, ExUnit, and the library API. There is no separate red-team CLI command or generation/import form in the dashboard yet.
 
 See the [red-team guide](https://hexdocs.pm/aludel/red_team.html), [curated datasets wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Red-Team-Datasets), and [generated cases wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Generated-Red-Team-Cases) for category filters, review, budgets, provenance, and rerun behavior.
 
