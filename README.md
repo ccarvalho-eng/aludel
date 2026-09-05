@@ -57,7 +57,7 @@ The dashboard and automation interfaces use the same persisted prompts, provider
 | Imports and datasets | CSV and JSON import previews with row-level errors; reusable ordered datasets with variables, messages, assertions, metadata filters, provenance, idempotent suite population, and a versioned red-team catalog with deterministic deduplication |
 | Prompt evolution | Version and provider trends, version-over-version deltas, suite-scoped Pareto frontiers, failure-grounded prompt suggestions, and explicit accept or dismiss decisions |
 | Automation and exports | Native ExUnit assertions and persisted suite gates, versioned JSON or YAML suite manifests, JSON run and suite exports, CSV or JSON evolution exports, a custom reporter behavior, console reports, versioned JSON, JUnit XML, GitHub annotations, and policy-aware `mix aludel.eval` quality gates |
-| Execution and extension | Native provider calls, host-app callback execution, pluggable LLM, storage, and document-conversion boundaries, optional callback metadata, and configurable run concurrency |
+| Execution and extension | Native provider calls, host-app callback execution, pluggable LLM and storage boundaries, bounded first-page PDF conversion, custom document converters, optional callback metadata, and configurable run concurrency |
 | Deployment | Embedded Phoenix dashboard, standalone app, Docker Compose, local/AWS S3/GCS document storage, custom auth/access resolvers, CSP nonce support, theming, and read-only mode |
 | Demo data | Deterministic prompts, providers, datasets, suites, runs, failures, artifacts, and 60 days of comparison history through `mix aludel.seed` |
 

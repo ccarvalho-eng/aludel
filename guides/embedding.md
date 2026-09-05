@@ -7,6 +7,7 @@ Aludel can share a host Phoenix application's repository and authentication boun
 - Elixir 1.17 or later
 - Phoenix 1.8
 - PostgreSQL 12 or later
+- A C++17 toolchain when compiling the PDF process runner dependency
 - ImageMagick when PDF-to-image conversion is required
 
 Aludel relies on PostgreSQL features including `JSONB`, `percentile_disc()`, and `DATE()` aggregations. SQLite and MySQL are not supported.
@@ -224,10 +225,17 @@ Configure the included ImageMagick adapter when a provider needs page images ins
 
 ```elixir
 config :aludel, :document_converter,
-  adapter: Aludel.Interfaces.DocumentConverter.Adapters.Imagemagick
+  adapter: Aludel.Interfaces.DocumentConverter.Adapters.Imagemagick,
+  density: 150,
+  timeout_ms: 30_000,
+  max_input_bytes: 10_485_760,
+  max_output_bytes: 20_971_520,
+  max_diagnostic_bytes: 16_384
 ```
 
-The `convert` executable must be available to the running application. A custom adapter can implement `Aludel.Interfaces.DocumentConverter.Behaviour`.
+ImageMagick's `magick` executable is preferred, with `convert` supported for ImageMagick 6 installations. Each conversion uses a private temporary workspace and a dedicated OS process group, so timeout termination covers the converter and its delegates. Aludel also applies limits for source and result size, duration, dimensions, memory, disk, files, threads, and captured diagnostics. Applications can lower the byte limits, set a timeout from 100 through 60,000 milliseconds, select a density from 72 through 300 DPI, or provide trusted `:executable` and `:temporary_directory` paths.
+
+A custom adapter can implement `Aludel.Interfaces.DocumentConverter.Behaviour`.
 
 ## Standalone application
 

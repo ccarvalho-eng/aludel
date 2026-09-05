@@ -64,7 +64,7 @@ defmodule Aludel.MixProject do
   def application do
     [
       mod: {Aludel.Application, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :erlexec]
     ]
   end
 
@@ -116,6 +116,7 @@ defmodule Aludel.MixProject do
        only: [:dev, :test]},
       {:req, "~> 0.5"},
       {:mint, "~> 1.10"},
+      {:erlexec, "~> 2.4"},
       {:req_llm, "~> 1.0"},
       {:nimble_csv, "~> 1.2"},
       {:ex_aws, "~> 2.6"},

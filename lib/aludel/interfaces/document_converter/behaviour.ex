@@ -10,7 +10,7 @@ defmodule Aludel.Interfaces.DocumentConverter.Behaviour do
   @type convert_result :: {:ok, binary()} | {:error, term()}
 
   @doc """
-  Converts a PDF to PNG format.
+  Converts a PDF to PNG format using adapter-specific options.
 
   Returns the PNG binary data on success.
   """

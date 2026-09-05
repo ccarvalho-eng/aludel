@@ -2,8 +2,9 @@ defmodule Aludel.DocumentConverter do
   @moduledoc """
   Converts documents between formats for LLM consumption.
 
-  Currently supports:
-  - PDF → PNG (first page only, 150 DPI)
+  Currently supports PDF to PNG conversion for the first page. The default
+  adapter bounds the source and result sizes, conversion duration, diagnostic
+  output, and ImageMagick resources.
 
   ## Usage
 
@@ -16,7 +17,7 @@ defmodule Aludel.DocumentConverter do
 
   ## Requirements
 
-  Requires ImageMagick v7+ to be installed:
+  Requires ImageMagick to be installed:
   - macOS: `brew install imagemagick`
   - Ubuntu/Debian: `apt-get install imagemagick`
   - Docker: Install in runtime image
@@ -26,7 +27,17 @@ defmodule Aludel.DocumentConverter do
   The conversion adapter can be configured in config files:
 
       config :aludel, :document_converter,
-        adapter: Aludel.Interfaces.DocumentConverter.Adapters.Imagemagick
+        adapter: Aludel.Interfaces.DocumentConverter.Adapters.Imagemagick,
+        density: 150,
+        timeout_ms: 30_000,
+        max_input_bytes: 10_485_760,
+        max_output_bytes: 20_971_520,
+        max_diagnostic_bytes: 16_384
+
+  `density` accepts values from 72 through 300. Size and diagnostic limits can
+  be lowered from their defaults, while `timeout_ms` accepts 100 through 60,000.
+  An explicit `:executable` path and an existing `:temporary_directory` can also
+  be supplied by trusted application configuration.
 
   For testing, use a stub adapter.
   """
@@ -55,7 +66,9 @@ defmodule Aludel.DocumentConverter do
   """
   @spec pdf_to_image(document()) :: convert_result()
   def pdf_to_image(%{content_type: "application/pdf", data: pdf_data}) do
-    case adapter().convert_pdf_to_png(pdf_data, []) do
+    {adapter, options} = adapter_config()
+
+    case adapter.convert_pdf_to_png(pdf_data, options) do
       {:ok, png_data} ->
         {:ok, %{data: png_data, content_type: "image/png"}}
 
@@ -64,18 +77,20 @@ defmodule Aludel.DocumentConverter do
     end
   end
 
-  def pdf_to_image(doc), do: {:ok, doc}
+  def pdf_to_image(doc) do
+    {:ok, doc}
+  end
 
-  defp adapter do
+  defp adapter_config do
     case Application.get_env(:aludel, :document_converter, []) do
       adapter when is_atom(adapter) and not is_nil(adapter) ->
-        adapter
+        {adapter, []}
 
       config when is_list(config) ->
-        Keyword.get(config, :adapter, @default_adapter)
+        {Keyword.get(config, :adapter, @default_adapter), Keyword.delete(config, :adapter)}
 
       _ ->
-        @default_adapter
+        {@default_adapter, []}
     end
   end
 end
