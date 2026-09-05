@@ -201,9 +201,9 @@ defmodule Aludel.Web.Layouts do
     assigns = assign(assigns, :active, active)
 
     ~H"""
-    <a href={@href} class={"aludel-nav-link #{@active}"}>
+    <.link navigate={@href} class={"aludel-nav-link #{@active}"}>
       {render_slot(@inner_block)}
-    </a>
+    </.link>
     """
   end
 end

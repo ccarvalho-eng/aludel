@@ -22227,6 +22227,9 @@ removing illegal node: "${("outerHTML" in childNode && childNode.outerHTML || ch
     }
   };
   function setTheme(theme) {
+    if (!["system", "light", "dark"].includes(theme)) {
+      theme = "system";
+    }
     localStorage.setItem("theme", theme);
     let appliedTheme = theme;
     if (theme === "system") {
@@ -22249,6 +22252,11 @@ removing illegal node: "${("outerHTML" in childNode && childNode.outerHTML || ch
     const theme = e.target.getAttribute("data-phx-theme");
     if (theme) {
       setTheme(theme);
+    }
+  });
+  window.addEventListener("storage", (e) => {
+    if (e.key === "theme") {
+      setTheme(e.newValue || "system");
     }
   });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
