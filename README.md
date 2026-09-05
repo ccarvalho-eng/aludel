@@ -139,6 +139,8 @@ Materialize a versioned set of adversarial cases into any reusable dataset:
 
 In the dashboard, open a dataset and choose **Add red-team cases**. Browse every catalog prompt, risk reference, severity, technique, deterministic canary, and recommended judge before selecting exact cases. Choose the target prompt variable and optionally a configured judge provider and threshold; the result reports newly created and already-present entries.
 
+Choose **Generate cases** for product-specific candidates. Configure explicit request, token, cost, and timeout bounds; inspect the receipt, safe failures, usage, checksums, prompt, rationale, classification, and recommended judge; then check the exact candidates to import. Nothing is pre-approved, and unimported candidates are discarded when the connected page session ends.
+
 ```elixir
 {:ok, dataset} = Aludel.Datasets.create_dataset(%{name: "Security regressions"})
 
@@ -184,7 +186,7 @@ approved_case_ids =
 
 Import revalidates the generation and candidate checksums, requires at least one unique approved ID, attaches each candidate's recommended rubric judge, records generation and review provenance, and skips only an exact prior import. Any conflict rolls back the complete approved selection.
 
-Curated catalog browsing and materialization are available in the dashboard and Elixir API. Generated-case generation, review, and import remain Elixir API features until the separate review workflow is configured. Persisted cases use the normal dataset and suite workflows in the dashboard, `mix aludel.eval`, ExUnit, and the library API. There is no separate red-team CLI command.
+Curated catalog materialization and generated-case generation, review, and approval/import are available in the dashboard and Elixir API. Persisted cases use the normal dataset and suite workflows in the dashboard, `mix aludel.eval`, ExUnit, and the library API. There is no separate red-team CLI command.
 
 See the [red-team guide](https://hexdocs.pm/aludel/red_team.html), [curated datasets wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Red-Team-Datasets), and [generated cases wiki guide](https://github.com/ccarvalho-eng/aludel/wiki/Generated-Red-Team-Cases) for category filters, review, budgets, provenance, and rerun behavior.
 

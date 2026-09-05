@@ -14,13 +14,20 @@
           Reusable evaluation conversations and expectations
         </p>
       </div>
-      <.link
-        navigate={aludel_path("datasets/#{@dataset.id}/red-team/catalog")}
-        class="button-secondary"
-        style="margin-left: auto;"
-      >
-        <.icon name="hero-shield-exclamation" class="size-4" /> Add red-team cases
-      </.link>
+      <div style="display: flex; gap: 8px; margin-left: auto;">
+        <.link
+          navigate={aludel_path("datasets/#{@dataset.id}/red-team/catalog")}
+          class="button-secondary"
+        >
+          <.icon name="hero-shield-exclamation" class="size-4" /> Add red-team cases
+        </.link>
+        <.link
+          navigate={aludel_path("datasets/#{@dataset.id}/red-team/generated")}
+          class="button-secondary"
+        >
+          <.icon name="hero-sparkles" class="size-4" /> Generate cases
+        </.link>
+      </div>
     </div>
 
     <div style="display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 24px; align-items: start;">
