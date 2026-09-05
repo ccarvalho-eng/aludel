@@ -73,7 +73,8 @@ The suite UI supports:
 - detailed assertion, field-comparison, metric-context, and evaluator execution results
 - custom rubric judges and versioned correctness, relevance, faithfulness, safety, refusal, PII, and hallucination templates
 - bounded repeated sampling with all, any, majority, and minimum pass-rate reducers
-- immutable versioned quality policies for overall and metadata-group pass rates, evaluator scores, total cost, and average latency
+- validated quality-policy authoring with immutable version history for overall and metadata-group pass rates, evaluator scores, total cost, and average latency
+- policy version, aggregate status, and per-rule evidence on historical suite results
 - retrying one test result without rerunning the entire suite
 - copy actions and raw JSON exports
 
@@ -82,6 +83,8 @@ Built-in metrics are `contains`, `not_contains`, `regex`, `exact_match`, `json_f
 The visual assertion editor configures either a built-in judge template or a custom rubric, a separate judge provider, a 0–100 pass threshold, an optional reference answer, and optional grounding context. The raw JSON editor exposes the same assertion contract. Once saved, judge assertions run through the dashboard, Mix CLI, ExUnit, file-based suites, and the Elixir API.
 
 The suite run panel configures one to 20 attempts per test case and all, any, strict-majority, or minimum pass-rate reduction. Sampled results expose the aggregate pass evidence and an expandable ordered attempt history. File-based suites provide the same settings to the Mix CLI, while ExUnit and the Elixir API accept them as execution options.
+
+From a suite page, **Manage policy** opens a JSON editor with live validation, a starter definition, rule guidance, and inspectable immutable history. The latest version applies to future runs. Historical result cards retain the version they used and display each rule's measured evidence. The dashboard and Elixir API create versions; the Mix CLI, ExUnit, reporters, and exports consume the resulting gate.
 
 ## Reusable datasets
 

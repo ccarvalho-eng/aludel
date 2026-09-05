@@ -72,6 +72,22 @@
           >
             Edit Suite Details
           </button>
+          <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
+            <.link
+              navigate={aludel_path("suites/#{@suite.id}/policy")}
+              class="button-secondary"
+              style="font-size: 13px; padding: 6px 12px; width: 100%; text-align: center;"
+            >
+              Manage policy
+            </.link>
+            <div
+              :if={@active_policy}
+              id="active-quality-policy"
+              style="padding: 8px 10px; border-radius: 6px; background: color-mix(in srgb, #059669 10%, transparent); color: #059669; font-size: 12px; font-weight: 600; text-align: center;"
+            >
+              Policy v{@active_policy.version} active
+            </div>
+          </div>
         </div>
       <% end %>
       <div style="margin-bottom: 24px;">
@@ -1166,6 +1182,37 @@
                     >
                       Export JSON
                     </a>
+                  </div>
+                </div>
+              </div>
+              <div
+                :if={is_map(suite_run.quality_policy_result)}
+                id={"suite-run-policy-#{suite_run.id}"}
+                style="margin-bottom: 12px; padding: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-secondary);"
+              >
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px;">
+                  <strong style="font-size: 13px;">
+                    Policy v{suite_run.quality_policy_result["policy_version"]}
+                  </strong>
+                  <span style={"font-size: 12px; font-weight: 600; color: #{policy_status_color(suite_run.quality_policy_result["status"])}"}>
+                    {policy_status_label(suite_run.quality_policy_result["status"])}
+                  </span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <div
+                    :for={rule <- policy_rules(suite_run.quality_policy_result)}
+                    id={"suite-run-policy-rule-#{suite_run.id}-#{policy_rule_dom_id(rule["id"])}"}
+                    style="padding: 9px 10px; border-radius: 6px; background: var(--bg-tertiary); font-size: 12px;"
+                  >
+                    <div style="display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px;">
+                      <strong>{policy_rule_label(rule["type"])}</strong>
+                      <span style={"font-weight: 600; color: #{policy_status_color(rule["status"])}"}>
+                        {policy_status_label(rule["status"])}
+                      </span>
+                    </div>
+                    <div style="color: var(--text-secondary);">
+                      {policy_rule_actual(rule)} · {policy_rule_requirement(rule)}
+                    </div>
                   </div>
                 </div>
               </div>

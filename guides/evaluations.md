@@ -211,7 +211,9 @@ The dashboard renders the aggregate evidence in each sampled test case result an
 
 ### Enforce a versioned quality policy
 
-Create an immutable policy version for a suite:
+In the dashboard, open a suite and choose **Manage policy**. Start from the validated example or the active definition, add any combination of the five rule types, and choose **Create policy version**. Each save is immutable, and the version history keeps every definition inspectable. The suite page marks the active version and shows the snapshotted aggregate status and per-rule evidence on each historical run.
+
+To create the same immutable policy version through the Elixir API:
 
 ```elixir
 {:ok, policy} =
@@ -251,7 +253,7 @@ case suite_run.quality_policy_result do
 end
 ```
 
-`mix aludel.eval` uses a stored policy outcome as its process exit gate. Suites without a policy keep the legacy behavior: every test case must pass and an empty suite fails.
+Policy creation is available in the dashboard and Elixir API. `mix aludel.eval`, ExUnit, reporters, and exports read the persisted outcome; the CLI does not create policy versions. `mix aludel.eval` uses that outcome as its process exit gate. Suites without a policy keep the legacy behavior: every test case must pass and an empty suite fails.
 
 ## 5. Populate a suite
 
