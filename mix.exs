@@ -119,7 +119,7 @@ defmodule Aludel.MixProject do
        depth: 1,
        only: [:dev, :test]},
       {:req, "~> 0.5"},
-      {:mint, "~> 1.10.2"},
+      {:mint, "~> 1.11.0"},
       {:erlexec, "~> 2.4"},
       {:req_llm, "~> 1.0"},
       {:nimble_csv, "~> 1.2"},
