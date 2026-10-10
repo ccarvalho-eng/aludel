@@ -180,7 +180,7 @@ defmodule Aludel.MixProject do
         "deps.audit",
         "dialyzer"
       ],
-      precommit: ["quality", "sobelow --config .sobelow-conf", "test"],
+      precommit: ["quality", "sobelow --config", "test"],
       "quality.ex_dna": ["ex_dna --min-mass 40 --max-clones 7 --format console"]
     ]
   end
