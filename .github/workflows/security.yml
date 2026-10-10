@@ -60,7 +60,7 @@ jobs:
         run: |
           mix deps.get
           mix compile --warnings-as-errors
-          mix sobelow --config .sobelow-conf
+          mix sobelow --config
 
   codeql:
     name: CodeQL Analysis
