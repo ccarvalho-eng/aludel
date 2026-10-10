@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.8.3] - 2026-10-10
+
 ### Changed
 - Update Mint to 1.11.0 and Phoenix to 1.8.15 in the root and standalone dependency locks
 - Update ReqLLM to 1.26.0 and llm_db to 2026.9.8 in the root dependency lock
