@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Security
+- Update Decimal to 3.2.0 to address CVE-2026-97853
+
+### Changed
+- Update Req to 0.7.5 and ReqLLM to 1.28.0
+
 ## [0.8.3] - 2026-10-10
 
 ### Changed
